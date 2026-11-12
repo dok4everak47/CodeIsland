@@ -18,6 +18,34 @@ enum NotchWidthMetrics {
         if hasNotch { return Swift.max(notchW, scaled) }
         return scaled
     }
+
+    /// How much of the wings the setting keeps on a notched display.
+    ///
+    /// 50 % → 0 (nothing but the bare notch), 100 % → 1 (un-scaled), 150 % → 2.
+    /// Below 100 % the wings give way instead of a virtual notch segment, so the
+    /// collapsed pill can shrink all the way down to the hardware cutout instead
+    /// of being stuck at notch + wings (#268 follow-up).
+    static func collapsedWingScale(_ collapsedWidthScale: Int) -> CGFloat {
+        let clamped = Swift.max(NotchWidthScale.min, Swift.min(collapsedWidthScale, NotchWidthScale.max))
+        return CGFloat(clamped - NotchWidthScale.min) / CGFloat(100 - NotchWidthScale.min)
+    }
+
+    /// Total collapsed width on a notched display: the physical notch plus the
+    /// scaled wings. Never narrower than the notch itself.
+    static func collapsedWidth(notchW: CGFloat, wingWidth: CGFloat, collapsedWidthScale: Int) -> CGFloat {
+        notchW + Swift.max(0, wingWidth) * collapsedWingScale(collapsedWidthScale)
+    }
+
+    /// Opacity for a wing's content while the pill shrinks: fully visible once
+    /// the slot fits the content, gone once the slot is `fadeSpan` narrower — the
+    /// content is clipped to its slot either way, so fading keeps it from looking
+    /// half-sawn when the pill is squeezed against the notch.
+    static func wingContentOpacity(slot: CGFloat, contentWidth: CGFloat, fadeSpan: CGFloat = 8) -> Double {
+        let floor = Swift.max(1, contentWidth)
+        if slot >= floor { return 1 }
+        if slot <= floor - fadeSpan { return 0 }
+        return Double((slot - (floor - fadeSpan)) / fadeSpan)
+    }
 }
 
 // MARK: - Hover interaction state machine
@@ -199,10 +227,22 @@ struct NotchPanelView: View {
     /// Total panel width — adapts based on state and screen geometry
     private var panelWidth: CGFloat {
         let nw = effectiveNotchW
-        if showIdleIndicator { return idleHovered ? nw + compactWingWidth * 2 + 80 : nw + compactWingWidth * 2 }
+        if showIdleIndicator {
+            // Hovering still needs room for the controls, so only the resting
+            // marker follows the width setting down to the bare notch.
+            if idleHovered { return nw + compactWingWidth * 2 + 80 }
+            return (hasNotch ? notchW : nw) + idleWingWidth * 2
+        }
         if !isActive { return hasNotch ? nw - 20 : nw }
         if shouldShowExpanded { return min(max(nw + 200, 580), maxPanelWidth) }
-        return collapsedBarWidth + quotaReserve.extraWidth + rightWingReserve
+        return collapsedPillWidth
+    }
+
+    /// Width of the resting idle marker's wing — the setting scales it like the
+    /// active bar's wings, mascot included, so the marker stays visible at the
+    /// smallest setting instead of vanishing into the notch.
+    private var idleWingWidth: CGFloat {
+        hasNotch ? collapsedWingSpan : compactWingWidth
     }
 
     /// Room the collapsed right wing lacks to clear the notch; 0 whenever it fits.
@@ -219,19 +259,118 @@ struct NotchPanelView: View {
     /// The panel window's width (PanelWindowController.panelSize).
     private var maxPanelWidth: CGFloat { min(620, screenWidth - 40) }
 
-    /// The collapsed active bar, before any room for the plan-limit chip.
+    /// Immediate hover acknowledgement: a slight widen while the expand delay runs
+    private var prehoverWidthExtra: CGFloat {
+        shouldShowPrehover ? NotchHoverInteraction.prehoverWidthDelta : 0
+    }
+
+    /// The collapsed bar without the chip / right-wing reserves and the hover
+    /// nudge. On a notched screen the setting shrinks the wings around the
+    /// physical notch; elsewhere it keeps scaling the simulated notch as before.
     private var collapsedBarWidth: CGFloat {
-        // Immediate hover acknowledgement: a slight widen while the expand delay runs
-        let prehoverExtra: CGFloat = shouldShowPrehover ? NotchHoverInteraction.prehoverWidthDelta : 0
-        return effectiveNotchW + compactWingWidth * 2 + collapsedStatusExtra + prehoverExtra
+        if hasNotch {
+            return notchW + collapsedWingSpan * 2 + collapsedStatusExtra * collapsedWingScale
+        }
+        return effectiveNotchW + compactWingWidth * 2 + collapsedStatusExtra
+    }
+
+    /// The collapsed pill as the window gets it: the bar plus the chip / right
+    /// wing reserves, plus the hover nudge. The reserves scale with the wings
+    /// too, so a shrunk pill never grows back past the width the setting asked
+    /// for — content that no longer fits fades out instead.
+    private var collapsedPillWidth: CGFloat {
+        let wingExtras = quotaReserve.extraWidth + rightWingReserve
+        if hasNotch {
+            let wings = collapsedWingSpan * 2
+                + (collapsedStatusExtra + wingExtras) * collapsedWingScale
+            return notchW + wings + prehoverWidthExtra
+        }
+        return effectiveNotchW + compactWingWidth * 2 + collapsedStatusExtra + wingExtras + prehoverWidthExtra
+    }
+
+    /// The mascot shrinks with the setting — full size at 100 %, half size at
+    /// the smallest one — so the narrowest island still shows the character
+    /// instead of a bare black notch.
+    private var collapsedContentScale: CGFloat {
+        0.5 + 0.5 * Swift.min(1, collapsedWingScale)
+    }
+
+    /// Rounded to whole points: pixel art resampled at 13.5pt looks muddy.
+    private var collapsedMascotSize: CGFloat { (mascotSize * collapsedContentScale).rounded() }
+
+    /// One wing of the collapsed pill: the mascot plus its padding, widened
+    /// again once the setting goes past 100 %.
+    private var collapsedWingSpan: CGFloat {
+        compactWingWidth * Swift.max(collapsedContentScale, collapsedWingScale)
+    }
+
+    /// The setting's wing multiplier (50 % → 0, 100 % → 1, 150 % → 2).
+    private var collapsedWingScale: CGFloat {
+        NotchWidthMetrics.collapsedWingScale(collapsedWidthScale)
+    }
+
+    /// Room each wing gets while the pill is collapsed on a notched screen:
+    /// half the extra width each, plus the plan-limit chip's reserve and the
+    /// tool name's on the left. The wings are pinned to the pill's edges, so
+    /// the empty part of a slot is just clearance over the cutout, and both
+    /// slots run down to zero as the setting shrinks — at 50 % nothing is left
+    /// but the hardware notch.
+    private var collapsedWingSlots: (left: CGFloat, right: CGFloat) {
+        let available = Swift.max(0, collapsedPillWidth - collapsedNotchGap)
+        let chipExtra = quotaReserve.extraWidth * (hasNotch ? collapsedWingScale : 1)
+        let half = Swift.max(0, (available - chipExtra) / 2)
+        let rightNeed = rightWingWidth > 0 ? rightWingWidth : compactWingWidth
+        let right = Swift.min(rightNeed, half)
+        let left = Swift.min(half + chipExtra + toolStatusExtra, Swift.max(0, available - right))
+        return (left, right)
+    }
+
+    /// The collapsed pill's horizontal offset. Only the chip reserves space on
+    /// one side, so the pill slides left by half of it; the tool-name room needs
+    /// no shift because the wings are pinned to the pill's own edges.
+    private var collapsedBarOffset: CGFloat {
+        guard hasNotch, !shouldShowExpanded else { return 0 }
+        return -(quotaReserve.extraWidth * collapsedWingScale) / 2
+    }
+
+    /// The gap the collapsed pill leaves over the hardware cutout. The hover
+    /// nudge widens the pill outward, not the notch segment, so it lands here.
+    private var collapsedNotchGap: CGFloat {
+        notchW + prehoverWidthExtra
+    }
+
+    /// The gap the row actually draws: everything the two slots don't claim.
+    /// Spelling it out keeps both wings pinned to the pill's edges — an HStack
+    /// with a fixed middle would centre the leftover and let the content drift
+    /// inward as the setting changes.
+    private var collapsedGapWidth: CGFloat {
+        Swift.max(collapsedNotchGap,
+                  collapsedPillWidth - collapsedWingSlots.left - collapsedWingSlots.right)
+    }
+
+    /// One wing of the collapsed pill over a notched screen: pinned to the
+    /// pill's outer edge, clipped to its slot, and faded out once the slot is
+    /// too narrow to hold its content.
+    private func collapsedWing<Content: View>(
+        _ content: Content,
+        slot: CGFloat,
+        alignment: Alignment,
+        contentWidth: CGFloat
+    ) -> some View {
+        content
+            .frame(width: slot, alignment: alignment)
+            .clipped()
+            .opacity(NotchWidthMetrics.wingContentOpacity(slot: slot, contentWidth: contentWidth))
     }
 
     /// Status and tool-status reserves, split evenly between the two wings.
     private var collapsedStatusExtra: CGFloat {
-        let extra: CGFloat = appState.status == .idle ? 0 : 20
-        // Reserve space for tool status — proportional to screen width
-        let toolExtra: CGFloat = displayedToolStatus ? (hasNotch ? screenWidth * 0.03 : screenWidth * 0.04) : 0
-        return extra + toolExtra
+        (appState.status == .idle ? 0 : 20) + toolStatusExtra
+    }
+
+    /// Room the tool name needs in the left wing — proportional to screen width.
+    private var toolStatusExtra: CGFloat {
+        displayedToolStatus ? (hasNotch ? screenWidth * 0.03 : screenWidth * 0.04) : 0
     }
 
     /// Room for the plan-limit chip in the collapsed bar; `.none` whenever the
@@ -258,16 +397,42 @@ struct NotchPanelView: View {
                 if showBar {
                     // Active: compact bar — wider version when expanded
                     HStack(spacing: 0) {
-                        CompactLeftWing(appState: appState, expanded: shouldShowExpanded, mascotSize: mascotSize, hasNotch: hasNotch, showToolStatus: showToolStatus)
                         if hasNotch && !shouldShowExpanded {
-                            Spacer(minLength: effectiveNotchW)
-                        } else if !shouldShowExpanded && showToolStatus {
-                            CompactToolStatus(appState: appState)
-                            Spacer(minLength: 0)
+                            // Collapsed over the hardware cutout: each wing is
+                            // pinned to the pill's outer edge and clipped to its
+                            // slot, so the width setting can shrink the wings
+                            // down to the mascot and the notch.
+                            collapsedWing(
+                                CompactLeftWing(
+                                    appState: appState,
+                                    expanded: false,
+                                    mascotSize: collapsedMascotSize,
+                                    hasNotch: hasNotch,
+                                    showToolStatus: showToolStatus,
+                                    toolTextMaxWidth: Swift.min(
+                                        ToolNameDisplay.compactMaxWidth,
+                                        Swift.max(0, collapsedWingSlots.left - collapsedWingSpan - 6)
+                                    )
+                                ),
+                                slot: collapsedWingSlots.left,
+                                alignment: .leading,
+                                contentWidth: collapsedWingSpan
+                            )
+                            Color.clear.frame(width: collapsedGapWidth)
+                            collapsedWing(
+                                CompactRightWing(appState: appState, expanded: false, hasNotch: hasNotch),
+                                slot: collapsedWingSlots.right,
+                                alignment: .trailing,
+                                contentWidth: rightWingWidth > 0 ? rightWingWidth : mascotSize
+                            )
                         } else {
+                            CompactLeftWing(appState: appState, expanded: shouldShowExpanded, mascotSize: mascotSize, hasNotch: hasNotch, showToolStatus: showToolStatus)
+                            if !shouldShowExpanded && showToolStatus {
+                                CompactToolStatus(appState: appState)
+                            }
                             Spacer(minLength: 0)
+                            CompactRightWing(appState: appState, expanded: shouldShowExpanded, hasNotch: hasNotch)
                         }
-                        CompactRightWing(appState: appState, expanded: shouldShowExpanded, hasNotch: hasNotch)
                     }
                     .frame(height: notchHeight)
                     // Recap on hover while collapsed — shows whenever hover
@@ -295,8 +460,9 @@ struct NotchPanelView: View {
                     .onPreferenceChange(CompactRightWingWidthKey.self) { if $0 > 0 { rightWingWidth = $0 } }
                 } else if showIdleIndicator {
                     IdleIndicatorBar(
-                        mascotSize: mascotSize,
+                        mascotSize: idleHovered ? mascotSize : collapsedMascotSize,
                         compactWingWidth: compactWingWidth,
+                        wingWidth: idleHovered ? compactWingWidth : idleWingWidth,
                         notchW: effectiveNotchW,
                         notchHeight: notchHeight,
                         hasNotch: hasNotch,
@@ -573,7 +739,9 @@ struct NotchPanelView: View {
                 }
             }
             // Outside onHover on purpose: the hover region moves with the bar.
-            .offset(x: quotaReserve.shift + rightWingReserve / 2)
+            // The chip reserve lives in the left wing's slot, so the pill slides
+            // left to keep that slot clear of the cutout.
+            .offset(x: collapsedBarOffset)
 
             Spacer()
                 .allowsHitTesting(false)
@@ -606,6 +774,10 @@ private struct CompactLeftWing: View {
     let mascotSize: CGFloat
     let hasNotch: Bool
     let showToolStatus: Bool
+    /// Cap for the compact tool name. The collapsed pill on a notched screen
+    /// narrows it to the left slot, so a shrinking pill truncates the name with
+    /// an ellipsis instead of cutting it mid-glyph.
+    var toolTextMaxWidth: CGFloat = ToolNameDisplay.compactMaxWidth
     @AppStorage(SettingsKey.sessionGroupingMode) private var groupingMode = SettingsDefaults.sessionGroupingMode
     // Bound via @AppStorage so flipping the default mascot in Settings rerenders this view
     // even when AppState.primarySource wasn't recomputed (no session mutations in flight).
@@ -658,7 +830,7 @@ private struct CompactLeftWing: View {
                         .foregroundStyle(toolStatusColor(tool))
                         .lineLimit(1)
                         .truncationMode(.middle)
-                        .frame(maxWidth: ToolNameDisplay.compactMaxWidth, alignment: .leading)
+                        .frame(maxWidth: toolTextMaxWidth, alignment: .leading)
                         .transition(.opacity)
                         .help(tool)
                 } else if let limit = QuotaChip.limit(appState: appState, enabled: showClaudeQuota, modeRaw: claudeQuotaChip),
@@ -1326,6 +1498,9 @@ private struct SessionGroupingTabs: View {
 private struct IdleIndicatorBar: View {
     let mascotSize: CGFloat
     let compactWingWidth: CGFloat
+    /// Room the mascot gets; the width setting shrinks it toward zero so the
+    /// resting marker can sit flush with the notch.
+    let wingWidth: CGFloat
     let notchW: CGFloat
     let notchHeight: CGFloat
     let hasNotch: Bool
@@ -1344,6 +1519,9 @@ private struct IdleIndicatorBar: View {
                     .opacity(hovered ? 0.9 : 0.5)
             }
             .padding(.leading, 6)
+            .frame(width: wingWidth, alignment: .leading)
+            .clipped()
+            .opacity(NotchWidthMetrics.wingContentOpacity(slot: wingWidth, contentWidth: mascotSize + 6))
 
             Spacer(minLength: hasNotch ? notchW : 0)
 

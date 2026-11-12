@@ -271,6 +271,57 @@ final class NotchHoverInteractionTests: XCTestCase {
         XCTAssertEqual(NotchWidthMetrics.effectiveNotchWidth(notchW: 200, collapsedWidthScale: 900, hasNotch: false), 300)
     }
 
+    // MARK: - Collapsed pill above the notch
+
+    func testCollapsedWingScaleMapsEndpoints() {
+        // 50 % leaves nothing but the notch, 100 % is un-scaled, 150 % doubles.
+        XCTAssertEqual(NotchWidthMetrics.collapsedWingScale(50), 0)
+        XCTAssertEqual(NotchWidthMetrics.collapsedWingScale(75), 0.5)
+        XCTAssertEqual(NotchWidthMetrics.collapsedWingScale(100), 1)
+        XCTAssertEqual(NotchWidthMetrics.collapsedWingScale(150), 2)
+        // Out-of-range values clamp to the shared slider bounds.
+        XCTAssertEqual(NotchWidthMetrics.collapsedWingScale(10), 0)
+        XCTAssertEqual(NotchWidthMetrics.collapsedWingScale(900), 2)
+    }
+
+    func testCollapsedWidthShrinksTheWingsNotTheNotch() {
+        // 220pt notch + 82pt of wings.
+        XCTAssertEqual(
+            NotchWidthMetrics.collapsedWidth(notchW: 220, wingWidth: 82, collapsedWidthScale: 100),
+            302,
+            accuracy: 0.001
+        )
+        // Halfway down the lower half the wings are halved, the notch is not.
+        XCTAssertEqual(
+            NotchWidthMetrics.collapsedWidth(notchW: 220, wingWidth: 82, collapsedWidthScale: 75),
+            220 + 41,
+            accuracy: 0.001
+        )
+        // 50 % sits flush with the hardware cutout — narrower would be invisible
+        // against it anyway.
+        XCTAssertEqual(
+            NotchWidthMetrics.collapsedWidth(notchW: 220, wingWidth: 82, collapsedWidthScale: 50),
+            220,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            NotchWidthMetrics.collapsedWidth(notchW: 220, wingWidth: 82, collapsedWidthScale: 150),
+            220 + 164,
+            accuracy: 0.001
+        )
+    }
+
+    func testWingContentOpacityFadesOnlyWhileTheSlotIsTooNarrow() {
+        // Slot fits the content: fully visible, whatever the scale asked for.
+        XCTAssertEqual(NotchWidthMetrics.wingContentOpacity(slot: 41, contentWidth: 33), 1)
+        XCTAssertEqual(NotchWidthMetrics.wingContentOpacity(slot: 68, contentWidth: 33), 1)
+        // Half the fade span into the squeeze.
+        XCTAssertEqual(NotchWidthMetrics.wingContentOpacity(slot: 29, contentWidth: 33), 0.5, accuracy: 0.001)
+        // Gone once the slot can no longer hold the content.
+        XCTAssertEqual(NotchWidthMetrics.wingContentOpacity(slot: 25, contentWidth: 33), 0)
+        XCTAssertEqual(NotchWidthMetrics.wingContentOpacity(slot: 0, contentWidth: 33), 0)
+    }
+
     // MARK: - Click-to-jump card ownership
 
     func testApprovalJumpOnlyCollapsesAnApprovalSurface() {
