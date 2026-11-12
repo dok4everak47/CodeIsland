@@ -4,6 +4,8 @@ enum IslandSurface: Equatable {
     case collapsed
     /// 用户主动展开，显示 session 列表
     case sessionList
+    /// 点开一张卡片就地看它的详情（不再跳到终端）
+    case sessionDetail(sessionId: String)
     /// 显示权限审批卡片
     case approvalCard(sessionId: String)
     /// 显示问答卡片
@@ -17,8 +19,18 @@ enum IslandSurface: Equatable {
     var sessionId: String? {
         switch self {
         case .collapsed, .sessionList: return nil
-        case .approvalCard(let id), .questionCard(let id), .completionCard(let id): return id
+        case .sessionDetail(let id),
+             .approvalCard(let id),
+             .questionCard(let id),
+             .completionCard(let id):
+            return id
         }
+    }
+
+    /// The session whose details are open, only while that surface is up.
+    var detailSessionId: String? {
+        if case .sessionDetail(let id) = self { return id }
+        return nil
     }
 
     /// Session of the surface only when it is the matching card kind. A

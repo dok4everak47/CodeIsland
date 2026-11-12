@@ -25,6 +25,33 @@ enum SessionListDensity: String, CaseIterable {
     }
 }
 
+// MARK: - Click behaviour
+
+/// What a click on a session card does (Settings → Behaviour).
+///
+/// The jump to the terminal used to *be* the click: it took the user out of
+/// whatever they were doing and into another app, for what is usually a
+/// glance. `detail` keeps the glance inside the island; the jump is still one
+/// explicit ↗ away, and ⌘-click always jumps.
+enum CardClickAction: String, CaseIterable {
+    /// Open the session's details in the island, in place of the list.
+    case detail
+    /// Activate the terminal tab running the session (the old behaviour).
+    case terminal
+
+    /// Unknown or missing values read as the default.
+    init(storedValue: String?) {
+        self = storedValue.flatMap(CardClickAction.init(rawValue:)) ?? .detail
+    }
+
+    var titleKey: String {
+        switch self {
+        case .detail: return "card_click_action_detail"
+        case .terminal: return "card_click_action_terminal"
+        }
+    }
+}
+
 // MARK: - Status word
 
 /// The status a session card spells out in its chip and colours its edge

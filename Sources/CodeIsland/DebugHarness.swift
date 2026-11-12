@@ -28,6 +28,7 @@ enum PreviewScenario: String, CaseIterable {
     case approval
     case question
     case completion
+    case detail
     case multi
     case busy
     // CLI-specific scenarios
@@ -62,6 +63,28 @@ enum DebugHarness {
         ProcessInfo.processInfo.arguments.contains("--collapsed")
     }
 
+    /// `--snapshot <path>`: write the panel to a PNG and quit. The panel draws
+    /// its own backing store into a bitmap, which — unlike `screencapture` —
+    /// needs no screen-recording permission, so a layout can be checked from
+    /// a terminal.
+    static var snapshotPath: String? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let idx = args.firstIndex(of: "--snapshot"), idx + 1 < args.count else { return nil }
+        return args[idx + 1]
+    }
+
+    /// Draw `window`'s content view into a PNG at `path`.
+    @discardableResult
+    static func writeSnapshot(of window: NSWindow, to path: String) -> Bool {
+        guard let view = window.contentView else { return false }
+        let bounds = view.bounds
+        guard bounds.width > 0, bounds.height > 0,
+              let rep = view.bitmapImageRepForCachingDisplay(in: bounds) else { return false }
+        view.cacheDisplay(in: bounds, to: rep)
+        guard let data = rep.representation(using: .png, properties: [:]) else { return false }
+        return (try? data.write(to: URL(fileURLWithPath: path))) != nil
+    }
+
     /// Inject mock data into appState for the given scenario
     static func apply(_ scenario: PreviewScenario, to appState: AppState) {
         switch scenario {
@@ -73,6 +96,8 @@ enum DebugHarness {
             applyQuestion(to: appState)
         case .completion:
             applyCompletion(to: appState)
+        case .detail:
+            applyDetail(to: appState)
         case .multi:
             applyMulti(to: appState)
         case .busy:
@@ -175,8 +200,60 @@ enum DebugHarness {
         state.surface = .completionCard(sessionId: "preview-completion")
     }
 
-    private static func applyMulti(to state: AppState) {
-        // Session 1: Claude working
+    /// What a click on a card opens now: the details page, mid-turn, with a
+    /// checklist, a reply and tool history.
+    private static func applyDetail(to state: AppState) {
+        var s = SessionSnapshot()
+        s.status = .running
+        s.cwd = "/Users/dev/notch-app"
+        s.model = "claude-opus-4-20250514"
+        s.source = "claude"
+        s.gitBranch = "feat/in-island-details"
+        s.startTime = Date().addingTimeInterval(-742)
+        s.currentTool = "Edit"
+        s.toolDescription = "Sources/CodeIsland/NotchPanelView.swift"
+        s.lastUserPrompt = "点击卡片别跳到终端了，在岛上展开详情"
+        s.lastAssistantMessage = """
+        Moved the click off the terminal jump. What changed:
+
+        - `handleSessionClick` now opens `IslandSurface.sessionDetail`
+        - the jump moved to a hover `↗` on the card and `⌘`-click
+        - the page shows the prompt, the checklist, the reply and the last tools
+
+        ```swift
+        appState.openSessionDetail(sessionId)
+        ```
+        """
+        s.addRecentMessage(ChatMessage(isUser: true, text: "点击卡片别跳到终端了，在岛上展开详情"))
+        s.addRecentMessage(ChatMessage(isUser: false, text: "Moved the click off the terminal jump."))
+        s.agentTasks.apply(.replace(opId: nil, items: [
+            AgentTaskDraft(title: "Read the card click path", status: .completed),
+            AgentTaskDraft(title: "Add the details surface", status: .completed),
+            AgentTaskDraft(
+                title: "Build the details page",
+                activeForm: "Building the details page",
+                status: .inProgress
+            ),
+            AgentTaskDraft(title: "Move the jump to ↗", status: .pending),
+            AgentTaskDraft(title: "Update the settings copy", status: .pending),
+        ]), now: Date())
+        for (tool, desc, ok) in [
+            ("Read", "Sources/CodeIsland/NotchPanelView.swift", true),
+            ("Grep", "handleSessionClick", true),
+            ("Edit", "Sources/CodeIsland/IslandSurface.swift", true),
+            ("Bash", "swift build", false),
+            ("Edit", "Sources/CodeIsland/SessionDetailView.swift", true),
+        ] {
+            s.recordTool(tool, description: desc, success: ok, agentType: nil, maxHistory: 20)
+        }
+        s.termApp = "Ghostty"
+
+        state.sessions["preview-detail"] = s
+        state.activeSessionId = "preview-detail"
+        state.surface = .sessionDetail(sessionId: "preview-detail")
+    }
+
+    private static func applyMulti(to state: AppState) {        // Session 1: Claude working
         var s1 = SessionSnapshot()
         s1.status = .running
         s1.cwd = "/Users/dev/frontend"

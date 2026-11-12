@@ -127,6 +127,7 @@ struct DiagnosticsExporter {
                 "hideInFullscreen": UserDefaults.standard.bool(forKey: SettingsKey.hideInFullscreen),
                 "hideWhenNoSession": UserDefaults.standard.bool(forKey: SettingsKey.hideWhenNoSession),
                 "collapseOnMouseLeave": UserDefaults.standard.bool(forKey: SettingsKey.collapseOnMouseLeave),
+                "cardClickAction": UserDefaults.standard.string(forKey: SettingsKey.cardClickAction) ?? SettingsDefaults.cardClickAction,
                 "smartSuppress": UserDefaults.standard.bool(forKey: SettingsKey.smartSuppress),
                 "sessionTimeout": UserDefaults.standard.integer(forKey: SettingsKey.sessionTimeout),
                 "maxVisibleSessions": UserDefaults.standard.integer(forKey: SettingsKey.maxVisibleSessions),

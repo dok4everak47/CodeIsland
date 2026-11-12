@@ -172,7 +172,7 @@ final class FollowUpReminderController {
     /// The island's surface changed. Opening the session list shows every
     /// session — pending cards inline, finished turns included — so it counts
     /// as having seen all of it; an approval / question card counts for its
-    /// own item.
+    /// own item, and a details page for the one session it shows.
     func surfaceChanged(_ surface: IslandSurface) {
         guard !scheduler.isEmpty || !hintedKeys.isEmpty else { return }
         switch surface {
@@ -180,6 +180,12 @@ final class FollowUpReminderController {
             hintedKeys.removeAll()
             scheduler.silenceAll(kind: .completion)
             reschedule(now: clock())
+        case .sessionDetail(let sid):
+            // The page carries this session's latest reply and, when there is
+            // one, its pending request — but not the other sessions'.
+            completionSeen(sessionId: sid)
+            hintedKeys.remove(Key(.approval, sid))
+            hintedKeys.remove(Key(.question, sid))
         case .approvalCard(let sid):
             hintedKeys.remove(Key(.approval, sid))
         case .questionCard(let sid):
@@ -372,6 +378,8 @@ final class FollowUpReminderController {
         switch appState.surface {
         case .sessionList:
             return true
+        case .sessionDetail(let sid):
+            return sid == key.sessionId
         case .approvalCard(let sid):
             return key.kind == .approval && sid == key.sessionId
         case .questionCard(let sid):

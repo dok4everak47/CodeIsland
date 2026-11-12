@@ -95,6 +95,9 @@ enum NotchHoverInteraction {
     static func hoverExpansionMayReplace(_ surface: IslandSurface) -> Bool {
         switch surface {
         case .approvalCard, .questionCard: return false
+        // A details page is something the user asked for; hovering the notch
+        // again must not drop it for the list.
+        case .sessionDetail: return false
         default: return true
         }
     }
@@ -578,6 +581,11 @@ struct NotchPanelView: View {
                         }
                         .animation(reduceMotion ? nil : NotchAnimation.micro, value: appState.pendingIdleSessionRemoval != nil)
                         .transition(.blurFade.combined(with: .move(edge: .top)))
+                    case .sessionDetail(let sid):
+                        // A card was clicked: the details open here, in place
+                        // of the list. The terminal is an explicit ↗ away.
+                        SessionDetailView(appState: appState, sessionId: sid)
+                            .transition(.blurFade.combined(with: .move(edge: .top)))
                     case .collapsed:
                         EmptyView()
                     }
@@ -641,6 +649,14 @@ struct NotchPanelView: View {
                 }
                 switch appState.surface {
                 case .approvalCard, .questionCard: return
+                case .sessionDetail:
+                    // A page the user opened to read: the pointer leaving it
+                    // (to scroll, to look elsewhere) must not fold it. It
+                    // closes on ✕, on a click outside, or on the hotkey.
+                    // Track the pointer anyway — the state the panel resumes
+                    // from after the page is the real one.
+                    isHovered = hovering
+                    return
                 case .completionCard:
                     // Completion card: mark entered on hover-in, block collapse until entered
                     if hovering {
@@ -3963,7 +3979,8 @@ private struct UsageSparkline: View {
 }
 
 /// Thin overlay scrollbar via NSScrollView — ignores system "show scrollbar" preference.
-private struct ThinScrollView<Content: View>: NSViewRepresentable {
+/// Shared with the session details page (SessionDetailView).
+struct ThinScrollView<Content: View>: NSViewRepresentable {
     let maxHeight: CGFloat
     @ViewBuilder let content: Content
 
@@ -4037,7 +4054,7 @@ enum BranchLabelMetrics {
     }
 }
 
-private struct SessionIdentityLine: View {
+struct SessionIdentityLine: View {
     let session: SessionSnapshot
     let sessionId: String
     let projectFontSize: CGFloat
@@ -4380,6 +4397,7 @@ private struct SessionCard: View {
     @AppStorage(SettingsKey.aiMessageLines) private var aiMessageLines = SettingsDefaults.aiMessageLines
     @AppStorage(SettingsKey.showAgentDetails) private var showAgentDetails = SettingsDefaults.showAgentDetails
     @AppStorage(SettingsKey.autoCollapseAfterSessionJump) private var autoCollapseAfterSessionJump = SettingsDefaults.autoCollapseAfterSessionJump
+    @AppStorage(SettingsKey.cardClickAction) private var cardClickAction = SettingsDefaults.cardClickAction
     @AppStorage(SettingsKey.showTaskProgress) private var showTaskProgress = SettingsDefaults.showTaskProgress
     @AppStorage(SettingsKey.showSessionRecap) private var showSessionRecap = SettingsDefaults.showSessionRecap
     @AppStorage(SettingsKey.showModelLabel) private var showModelLabel = SettingsDefaults.showModelLabel
@@ -4571,6 +4589,16 @@ private struct SessionCard: View {
                 }
                 SessionTag(timeAgo(session.startTime))
                 TerminalBadge(session: session)
+                // The jump is no longer what a click does, so it gets its own
+                // affordance — revealed on hover, with its slot reserved either
+                // way so the name beside it doesn't reflow when the pointer
+                // arrives.
+                if needsJumpButton {
+                    CardJumpButton(fontSize: chipFontSize) { jumpToTerminal() }
+                        .opacity(hovering ? 1 : 0)
+                        .allowsHitTesting(hovering)
+                        .accessibilityHidden(!hovering)
+                }
             }
         }
     }
@@ -4816,6 +4844,12 @@ private struct SessionCard: View {
                     .frame(width: compactStatusWidth, alignment: .leading)
                 compactActivity
                     .frame(maxWidth: .infinity, alignment: .leading)
+                if needsJumpButton {
+                    CardJumpButton(fontSize: fontSize) { jumpToTerminal() }
+                        .opacity(hovering ? 1 : 0)
+                        .allowsHitTesting(hovering)
+                        .accessibilityHidden(!hovering)
+                }
             }
             .frame(minHeight: CompactSessionRowMetrics.rowHeight)
 
@@ -4929,7 +4963,31 @@ private struct SessionCard: View {
         .accessibilityHidden(true)
     }
 
+    /// A click on the card. It used to *be* the terminal jump, which took the
+    /// user out of whatever they were doing for what is usually a glance; now
+    /// it opens the details in place, and the jump is the card's hover ↗,
+    /// ⌘-click, or the details page's own button.
     private func handleSessionClick() {
+        if clickJumpsToTerminal {
+            jumpToTerminal()
+        } else {
+            appState.openSessionDetail(sessionId)
+        }
+    }
+
+    /// ⌘-click always jumps, whatever the setting says.
+    private var clickJumpsToTerminal: Bool {
+        if NSEvent.modifierFlags.contains(.command) { return true }
+        return CardClickAction(storedValue: cardClickAction) == .terminal
+    }
+
+    /// Does the card offer the hover ↗? Only when a plain click doesn't
+    /// already jump, and only where there is a terminal to go to.
+    private var needsJumpButton: Bool {
+        session.canJumpFromNotch && CardClickAction(storedValue: cardClickAction) == .detail
+    }
+
+    private func jumpToTerminal() {
         TerminalActivator.activate(session: session, sessionId: sessionId)
 
         guard autoCollapseAfterSessionJump, session.canJumpFromNotch else { return }
@@ -4947,7 +5005,7 @@ private struct SessionCard: View {
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
                     switch appState.surface {
-                    case .sessionList, .completionCard:
+                    case .sessionList, .completionCard, .sessionDetail:
                         withAnimation(NotchAnimation.close) {
                             appState.surface = .collapsed
                         }
@@ -4991,6 +5049,31 @@ private struct SessionCard: View {
 }
 
 // MARK: - Session card parts
+
+/// The card's hover-only ↗ — the explicit way to the terminal now that a
+/// click opens the details instead of jumping.
+private struct CardJumpButton: View {
+    let fontSize: CGFloat
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Text("↗")
+                .font(.system(size: max(9, fontSize - 1), weight: .semibold, design: .monospaced))
+                .foregroundStyle(.white.opacity(hovering ? 0.95 : 0.6))
+                .frame(width: 16, height: 13)
+                .background(
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color.white.opacity(hovering ? 0.14 : 0))
+                )
+        }
+        .buttonStyle(.plain)
+        .help(L10n.shared["session_detail_open_terminal"])
+        .onHover { hovering = $0 }
+        .accessibilityLabel(L10n.shared["session_detail_open_terminal"])
+    }
+}
 
 /// The card's status word: NEEDS YOU, WORKING, DONE … in its status colour.
 /// Also drawn by the Appearance settings preview.
@@ -5123,7 +5206,7 @@ private struct SessionGlyphLine: View {
 /// The session card's inline buttons, in the approval card's hierarchy:
 /// one filled primary, an outlined destructive, quiet secondaries and a
 /// link. At least 24pt tall.
-private struct SessionInlineButton: View {
+struct SessionInlineButton: View {
     enum Style {
         /// Filled green — the one action the row leads with.
         case primary
@@ -5706,7 +5789,7 @@ private func monogramIcon(for source: String, size: CGFloat) -> NSImage {
     return image
 }
 
-private struct SessionTag: View {
+struct SessionTag: View {
     let text: String
     var color: Color = .white.opacity(0.7)
     /// Widest the tag gets (host names, model labels); it still hugs a
@@ -6004,7 +6087,7 @@ private struct ChatMessageRow: View, Equatable {
     }
 }
 
-private func stripDirectives(_ text: String) -> String {
+func stripDirectives(_ text: String) -> String {
     // Match ::directive-name{...} patterns (may span multiple lines)
     // Use a simple approach: remove lines that start with ::word{ or are continuation of a directive
     var result: [String] = []

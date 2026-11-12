@@ -273,7 +273,7 @@ final class AppState {
             switch surface {
             case .approvalCard(let sid): cardRequestId = pendingPermission(forSession: sid)?.id
             case .questionCard(let sid): cardRequestId = pendingQuestion(forSession: sid)?.id
-            case .collapsed, .sessionList, .completionCard: cardRequestId = nil
+            case .collapsed, .sessionList, .completionCard, .sessionDetail: cardRequestId = nil
             }
         }
     }
@@ -951,6 +951,17 @@ final class AppState {
                 completionHasBeenEntered = false
                 deferCollapseOnMouseLeave = false
                 showNextCompletionOrCollapse()
+            } else if case .sessionDetail = surface {
+                // The page went away with its session. A request waiting for
+                // another session still outranks the list; otherwise fall back
+                // to it (an empty list is what the island already does when the
+                // last session leaves).
+                _ = showNextPending()
+                if case .sessionDetail = surface {
+                    withAnimation(NotchAnimation.close) {
+                        surface = .sessionList
+                    }
+                }
             } else {
                 _ = showNextPending()
             }
@@ -1229,6 +1240,13 @@ final class AppState {
             // Don't queue duplicates
             if completionQueue.contains(sessionId) || justCompletedSessionId == sessionId { return }
 
+            // A details page is the island the user is reading. No card goes
+            // over it, and nothing is queued behind it either: the page may
+            // stay up for minutes, and the card would then pop at a random
+            // moment. The finished turn is on its card in the list, which is
+            // where closing the page leads.
+            if surface.detailSessionId != nil { return }
+
             // Already showing one, or one is on its way out of the queue —
             // queue this for later
             if isShowingCompletion || isShowingInteractive || queuedCompletionLookingAtTab != nil {
@@ -1406,6 +1424,21 @@ final class AppState {
         }
     }
 
+    /// Open one session's details in the island, in place of the list. This is
+    /// what a click on a card does now: the terminal jump is an explicit ↗
+    /// (or ⌘-click), so a glance no longer costs a switch of apps.
+    func openSessionDetail(_ sessionId: String) {
+        guard sessions[sessionId] != nil else { return }
+        // A page opened from a completion card outlives that card's timer: it
+        // would otherwise fold the island under the reader.
+        autoCollapseTask?.cancel()
+        autoCollapseTask = nil
+        activeSessionId = sessionId
+        withAnimation(NotchAnimation.pop) {
+            surface = .sessionDetail(sessionId: sessionId)
+        }
+    }
+
     func shouldAutoOpenPendingSurface(
         for sessionId: String,
         isTerminalFrontmost: (SessionSnapshot) -> Bool = TerminalVisibilityDetector.isTerminalFrontmostForSession
@@ -1473,6 +1506,9 @@ final class AppState {
     }
 
     private func doShowCompletion(_ sessionId: String) {
+        // Belt for the paths above: a page that was opened while a completion
+        // was already in flight keeps the island.
+        if surface.detailSessionId != nil { return }
         activeSessionId = sessionId
         surface = .completionCard(sessionId: sessionId)
         completionHasBeenEntered = false
@@ -2617,7 +2653,10 @@ final class AppState {
 
         if firstOfBurst {
             activeSessionId = sessionId
-            if Self.autoExpandOnQuestion(), shouldAutoOpenPendingSurface(for: sessionId) {
+            // A details page for this session already carries the question —
+            // its footer has the Answer button — so nothing opens over it.
+            if Self.autoExpandOnQuestion(), shouldAutoOpenPendingSurface(for: sessionId),
+               surface.detailSessionId != sessionId {
                 withAnimation(NotchAnimation.open) {
                     surface = .questionCard(sessionId: sessionId)
                 }
@@ -2757,7 +2796,8 @@ final class AppState {
 
         if firstOfBurst {
             activeSessionId = sessionId
-            if Self.autoExpandOnQuestion(), shouldAutoOpenQuestionSurface(for: event) {
+            if Self.autoExpandOnQuestion(), shouldAutoOpenQuestionSurface(for: event),
+               surface.detailSessionId != sessionId {
                 withAnimation(NotchAnimation.open) {
                     surface = .questionCard(sessionId: sessionId)
                 }
@@ -3225,6 +3265,8 @@ final class AppState {
             if shownIdx != nil { return true }
             // When the session list is open, keep it open; approvals can be handled inline.
             if surface == .sessionList { return true }
+            // Its details are open and carry the same buttons: keep the page.
+            if surface.detailSessionId == sid { return true }
             if Self.autoExpandOnPermission(), shouldAutoOpenPendingSurface(for: sid) {
                 surface = .approvalCard(sessionId: sid)
                 return true
@@ -3242,6 +3284,9 @@ final class AppState {
             }
             let sid = next.event.sessionId ?? "default"
             activeSessionId = sid
+            // A details page for this session already carries the question —
+            // its footer has the Answer button — so no card goes over it.
+            if surface.detailSessionId == sid { return true }
             if !Self.autoExpandOnQuestion() {
                 // Nothing opens by itself — and a card the user opened with a
                 // click stays put. Stale cards were already folded above.
@@ -3313,9 +3358,9 @@ final class AppState {
             // An approval or question took the island meanwhile: the card
             // waits behind it again, first in line.
             if sessions[sessionId] != nil { completionQueue.insert(sessionId, at: 0) }
-        case .sessionList:
-            // The user opened the session list, which shows this finished
-            // turn as well: no card over it.
+        case .sessionList, .sessionDetail:
+            // The user opened the session list (or one card's details), which
+            // show this finished turn as well: no card over it.
             break
         case .collapsed, .completionCard:
             if sessions[sessionId] != nil, !tabVisible {

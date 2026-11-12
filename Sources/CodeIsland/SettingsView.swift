@@ -439,6 +439,7 @@ private struct BehaviorPage: View {
     @AppStorage(SettingsKey.smartSuppress) private var smartSuppress = SettingsDefaults.smartSuppress
     @AppStorage(SettingsKey.collapseOnMouseLeave) private var collapseOnMouseLeave = SettingsDefaults.collapseOnMouseLeave
     @AppStorage(SettingsKey.autoCollapseAfterSessionJump) private var autoCollapseAfterSessionJump = SettingsDefaults.autoCollapseAfterSessionJump
+    @AppStorage(SettingsKey.cardClickAction) private var cardClickAction = SettingsDefaults.cardClickAction
     @AppStorage(SettingsKey.autoExpandOnPermission) private var autoExpandOnPermission = SettingsDefaults.autoExpandOnPermission
     @AppStorage(SettingsKey.followUpReminderMinutes) private var followUpReminderMinutes = SettingsDefaults.followUpReminderMinutes
     // Seeded through the migration shim so a legacy autoExpandOnCompletion=false
@@ -527,6 +528,16 @@ private struct BehaviorPage: View {
                     isOn: $autoCollapseAfterSessionJump,
                     animation: .clickJumpCollapse
                 )
+                VStack(alignment: .leading, spacing: 2) {
+                    Picker(l10n["card_click_action"], selection: $cardClickAction) {
+                        ForEach(CardClickAction.allCases, id: \.self) { action in
+                            Text(l10n[action.titleKey]).tag(action.rawValue)
+                        }
+                    }
+                    Text(l10n["card_click_action_desc"])
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                }
                 VStack(alignment: .leading, spacing: 2) {
                     Picker(l10n["completion_notification"], selection: $completionStyle) {
                         Text(l10n["completion_style_expand"]).tag(AppState.CompletionStyle.expand.rawValue)

@@ -181,6 +181,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         #if DEBUG
+        // --snapshot <path>: draw the panel to a PNG once it has settled, then
+        // quit. Independent of --preview, and drawn from the panel's own
+        // backing store so it needs no screen-recording permission.
+        if let path = DebugHarness.snapshotPath {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 2_200_000_000)
+                if let window = self.panelController?.debugPanelWindow {
+                    DebugHarness.writeSnapshot(of: window, to: path)
+                }
+                exit(0)
+            }
+        }
         // Preview mode: inject mock data if --preview flag is present
         if let scenario = DebugHarness.requestedScenario() {
             Self.log.debug("Loading scenario: \(scenario.rawValue)")

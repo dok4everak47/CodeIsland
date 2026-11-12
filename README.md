@@ -33,7 +33,7 @@
 
 ## Why CodeIsland?
 
-Coding agents spend a lot of time either working or waiting on you — and you only find out by switching to their window. CodeIsland turns the notch into a live status bar for all of them: which session is thinking, which one needs an approval, which one just finished. Approve the tool call or answer the question right there, or click once to jump to the exact terminal tab.
+Coding agents spend a lot of time either working or waiting on you — and you only find out by switching to their window. CodeIsland turns the notch into a live status bar for all of them: which session is thinking, which one needs an approval, which one just finished. Approve the tool call or answer the question right there; click a card to read its details in the island, or ⌘-click to jump to the exact terminal tab.
 
 It works with **30+ AI coding tools**, installs its hooks for you, and keeps everything on your Mac.
 
@@ -57,7 +57,7 @@ It works with **30+ AI coding tools**, installs its hooks for you, and keeps eve
 **✋ Act without switching windows**
 
 - Approve, deny or always-allow tool calls; answer multi-question prompts
-- One click to the exact terminal tab, IDE window, or tmux / zellij / Herdr pane
+- A click opens the session's details in the island; ⌘-click (or the card's ↗) goes to the exact terminal tab, IDE window, or tmux / zellij / Herdr pane
 - Global shortcuts for approve, deny, skip and jump
 - Auto-proceed for agents you already run in YOLO / Turbo mode
 

@@ -46,6 +46,9 @@ enum SettingsKey {
     static let showProjectName = "showProjectName"      // false = cards lead with the session title instead of the folder
     static let autoExpandOnQuestion = "autoExpandOnQuestion"
     static let sessionTimeout = "sessionTimeout"
+    /// What a click on a session card does: "detail" (expand it here) or
+    /// "terminal" (the old jump-to-the-terminal behaviour). ⌘-click always jumps.
+    static let cardClickAction = "cardClickAction"
 
     // Display
     static let maxPanelHeight = "maxPanelHeight"
@@ -187,6 +190,7 @@ struct SettingsDefaults {
     static let showProjectName = true
     static let autoExpandOnQuestion = true
     static let sessionTimeout = 30
+    static let cardClickAction = CardClickAction.detail.rawValue
 
     static let maxPanelHeight = 560
     static let maxVisibleSessions = 5
@@ -293,6 +297,7 @@ class SettingsManager {
             SettingsKey.showProjectName: SettingsDefaults.showProjectName,
             SettingsKey.autoExpandOnQuestion: SettingsDefaults.autoExpandOnQuestion,
             SettingsKey.sessionTimeout: SettingsDefaults.sessionTimeout,
+            SettingsKey.cardClickAction: SettingsDefaults.cardClickAction,
             SettingsKey.maxPanelHeight: SettingsDefaults.maxPanelHeight,
             SettingsKey.maxVisibleSessions: SettingsDefaults.maxVisibleSessions,
             SettingsKey.sessionListDensity: SettingsDefaults.sessionListDensity,

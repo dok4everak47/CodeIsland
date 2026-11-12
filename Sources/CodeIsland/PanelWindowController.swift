@@ -192,6 +192,13 @@ class PanelWindowController: NSObject, NSWindowDelegate {
     private var hostingView: NotchHostingView<NotchPanelView>?
     private let appState: AppState
 
+    #if DEBUG
+    /// The panel, for `--snapshot` (DebugHarness). Drawing the view's own
+    /// backing store needs no screen-recording permission, unlike
+    /// `screencapture`, so UI work can be checked from a terminal.
+    var debugPanelWindow: NSWindow? { panel }
+    #endif
+
     nonisolated static func screenHopFrames(
         oldFrame: NSRect,
         newFrame: NSRect
