@@ -398,18 +398,16 @@ struct TerminalActivator {
             return
         }
 
-        // --- TermiNai (Rust/gpui terminal): app-level activation only ---
+        // --- TermiNai (Rust/gpui terminal): `terminai focus` names the session ---
         // TermiNai (com.zacharyzhang.terminai) is a gpui app whose tabs — called "sessions" —
-        // live inside one window. It reports TERM_PROGRAM=terminai plus a compatibility
-        // KITTY_WINDOW_ID, but ships no URL scheme, no AppleScript dictionary (no
-        // NSAppleScriptEnabled, no .sdef), and its only CLI entry (`terminai hook`) writes
-        // agent events *into* the app: nothing focuses a session. Unknown to knownTerminals,
-        // the bundle id was caught earlier by resolveHostClientBundleId() — TermiNai looked
-        // like a GUI host client, so the click raised it and never reached this path. Raising
-        // it here is the same reachable behavior, now correctly attributed. Kept AFTER the
-        // tmux/Zellij branches so a multiplexer session hosted in TermiNai still gets its pane.
+        // live inside one window. Its `terminai focus` mode shows the session a tty, a pid or
+        // a folder names and raises the app; it answers on a socket of the user's own, so the
+        // exit code says whether the jump happened (0 shown, 1 no such session, 2 no app, 3 a
+        // malformed request). Kept AFTER the tmux/Zellij branches so a multiplexer session
+        // hosted in TermiNai still gets its pane first. When the CLI cannot name the session,
+        // the raise above is all a click can do.
         if session.termBundleId == "com.zacharyzhang.terminai" || lower == "terminai" {
-            activateByBundleId("com.zacharyzhang.terminai")
+            activateTermiNai(ttyPath: effectiveTty, pid: session.cliPid, cwd: session.cwd)
             return
         }
 
@@ -465,6 +463,56 @@ struct TerminalActivator {
         let ret = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size))
         guard ret > 0, info.pbi_ppid > 0 else { return nil }
         return pid_t(info.pbi_ppid)
+    }
+
+    // MARK: - TermiNai (`terminai focus --tty/--pid/--folder`)
+
+    /// The arguments that ask TermiNai to show a session: its tty first, since that names
+    /// exactly one session; then its pid, which reaches the session an agent runs under;
+    /// else the folder, which only answers when exactly one session holds it.
+    /// Nil when nothing can name a session, so a click falls back to raising the app.
+    static func terminaiFocusArguments(ttyPath: String?, pid: pid_t?, cwd: String?) -> [String]? {
+        var args = ["focus"]
+        if let tty = ttyPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !tty.isEmpty,
+           tty != "/dev/tty" {
+            args += ["--tty", tty]
+        }
+        if let pid, pid > 0 {
+            args += ["--pid", String(pid)]
+        }
+        if args.count == 1,
+           let cwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !cwd.isEmpty {
+            args += ["--folder", cwd]
+        }
+        return args.count > 1 ? args : nil
+    }
+
+    /// Runs TermiNai's own CLI, from whichever copy of the app is installed, off the main thread.
+    private static func activateTermiNai(ttyPath: String?, pid: pid_t?, cwd: String?) {
+        bringToFront("TermiNai")
+        guard let args = terminaiFocusArguments(ttyPath: ttyPath, pid: pid, cwd: cwd),
+              let bin = terminaiCLI() else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            // A zero exit means the session showed and the app raised itself; anything else
+            // leaves the app-level raise above as all a click does.
+            _ = runProcess(bin, args: args)
+        }
+    }
+
+    /// `terminai` beside the installed TermiNai.app, wherever that is, else on PATH.
+    private static func terminaiCLI() -> String? {
+        let bundles = [
+            NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.zacharyzhang.terminai"),
+            URL(fileURLWithPath: "/Applications/TermiNai.app"),
+            URL(fileURLWithPath: NSHomeDirectory() + "/Applications/TermiNai.app"),
+        ].compactMap { $0 }
+        for bundle in bundles {
+            let bin = bundle.appendingPathComponent("Contents/MacOS/terminai").path
+            if FileManager.default.isExecutableFile(atPath: bin) { return bin }
+        }
+        return findBinary("terminai")
     }
 
     // MARK: - Ghostty (AppleScript: match by CWD + session ID in title)

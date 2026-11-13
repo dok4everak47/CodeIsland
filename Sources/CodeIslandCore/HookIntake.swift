@@ -149,6 +149,7 @@ public struct HookIntake {
         "GROK_SESSION_ID", "GROK_HOOK_EVENT", "GROK_WORKSPACE_ROOT", "GROK_HOME",
         "HERMES_HOME",
         "TERM_PROGRAM", "__CFBundleIdentifier", "ITERM_SESSION_ID", "KITTY_WINDOW_ID",
+        "TERMINAI_TTY",
         "TMUX", "TMUX_PANE",
         "CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID",
         "ZELLIJ", "ZELLIJ_PANE_ID", "ZELLIJ_SESSION_NAME",
@@ -571,8 +572,11 @@ public struct HookIntake {
             }
         }
 
-        // TTY path
+        // TTY path: the controlling terminal, else the one TermiNai names for its session,
+        // since a hook daemon's own read of /dev/tty comes up empty.
         if let tty = facts.tty(), !tty.isEmpty {
+            json["_tty"] = tty
+        } else if let tty = env["TERMINAI_TTY"], !tty.isEmpty {
             json["_tty"] = tty
         }
 

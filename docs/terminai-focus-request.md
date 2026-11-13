@@ -12,6 +12,16 @@ entry (`terminai hook`) is write-only. See the TermiNai branch in
 
 ---
 
+**Status, 2026-11-13:** shipped in TermiNai 0.1.6 and wired up here. `terminai focus --tty
+<path>` (or `--pid`, or `--folder`) shows that session and exits 0 when it did, 1 when no
+session holds what it named, 2 when no app answers and 3 when the request is malformed;
+`terminai list [--json]` names each open session's tty, folder, shown title and whether the
+window shows it. `TerminalActivator`'s TermiNai branch runs `focus` with the session's tty
+and pid, and `HookIntake` carries `TERMINAI_TTY` for sessions whose hook daemon lost its
+terminal. Everything below stays as the source of truth for the issue body.
+
+---
+
 ## Title
 
 `terminai focus --tty <tty>` (or a `terminai://focus` link) so external agents can raise a specific session
