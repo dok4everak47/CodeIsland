@@ -1163,8 +1163,13 @@ public func reduceHookEvent(
     )
     if facts.endedTurn {
         let sessionId = event.sessionId ?? "default"
+        // DSH stamps its `agent/status` with the agent id, which is the
+        // session id too: the Stop derived from it is the session's own turn.
+        let pushAgentId = (sessions[sessionId]?.source == "dsh" && event.agentId == sessionId)
+            ? nil
+            : event.agentId
         facts.subagentTurn = PushEventClassifier.isSubagentCompletion(
-            agentId: event.agentId,
+            agentId: pushAgentId,
             raw: event.rawJSON,
             sessionId: sessionId,
             session: sessions[sessionId]
@@ -1288,6 +1293,46 @@ private func applyHookEvent(
        eventName != "SessionEnd",
        eventName != "SubagentStop",
        eventName != "Interrupt" {
+        return effects
+    }
+
+    // DSH has no Stop hook: its bridge (dsh-island) forwards DSH's
+    // `agent/status` transition as a Notification whose message is
+    // "Agent status: running|idle". That message is the turn's start and end,
+    // but it is also stamped with the agent id, so the subagent router would
+    // otherwise swallow it and leave the card spinning forever. Handle it
+    // here, ahead of that router, and report a running → idle transition as
+    // the Stop the source never sends.
+    if sessions[sessionId]?.source == "dsh",
+       eventName == "Notification",
+       let dshStatus = dshAgentStatus(from: event) {
+        let wasActive = sessions[sessionId]?.status == .processing
+            || sessions[sessionId]?.status == .running
+        let isWaiting = sessions[sessionId]?.status == .waitingApproval
+            || sessions[sessionId]?.status == .waitingQuestion
+        switch dshStatus {
+        case "running":
+            if !isWaiting {
+                sessions[sessionId]?.status = .processing
+            }
+        case "idle":
+            if wasActive, !isWaiting {
+                sessions[sessionId]?.status = .idle
+                sessions[sessionId]?.currentTool = nil
+                sessions[sessionId]?.toolDescription = nil
+                facts.endedTurn = true
+                // `AttentionPolicy` reads the event name for the cue and the
+                // push kind; this event is DSH's Stop even though the wire
+                // spelled it Notification.
+                facts.eventName = "Stop"
+                slots.completion = effects.count
+            }
+        default:
+            break
+        }
+        sessions[sessionId]?.lastActivity = Date()
+        facts.appliedToSession = true
+        slots.sound = effects.count
         return effects
     }
 
@@ -2266,6 +2311,20 @@ public func notificationKind(from event: HookEvent) -> String? {
     ) else { return nil }
     let trimmed = raw.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).lowercased()
     return trimmed.isEmpty ? nil : trimmed
+}
+
+/// The DSH agent status DSH's bridge spells into a Notification, if this is
+/// one. `dsh-island` has no Stop hook and sends `agent/status` as
+/// `message: "Agent status: running|idle"`; see the Notification branch of
+/// `applyHookEvent` for why that is the turn's start and end.
+private func dshAgentStatus(from event: HookEvent) -> String? {
+    guard let message = firstStringFromEvent(event, keys: ["message"], includeNested: true) else { return nil }
+    let prefix = "Agent status:"
+    guard message.hasPrefix(prefix) else { return nil }
+    let status = message.dropFirst(prefix.count)
+        .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        .lowercased()
+    return status.isEmpty ? nil : status
 }
 
 private func firstStringFromEvent(_ event: HookEvent, keys: [String], includeNested: Bool) -> String? {
