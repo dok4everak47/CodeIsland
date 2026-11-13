@@ -4,7 +4,7 @@ import CodeIslandCore
 
 /// Activates the terminal window/tab running a specific Claude Code session.
 /// Supports tab-level switching for: Ghostty, iTerm2, Terminal.app, WezTerm, kitty.
-/// Falls back to app-level activation for: Alacritty, Warp, Hyper, Tabby, Rio.
+/// Falls back to app-level activation for: Alacritty, Warp, Hyper, Tabby, Rio, TermiNai.
 struct TerminalActivator {
     // Internal (not private) so support tests can assert a terminal is recognized,
     // matching sourceToNativeAppBundleId's visibility. See TeraxSupportTests.
@@ -17,6 +17,7 @@ struct TerminalActivator {
         ("kitty", "net.kovidgoyal.kitty"),
         ("Alacritty", "org.alacritty"),
         ("Terax", "app.crynta.terax"),
+        ("TermiNai", "com.zacharyzhang.terminai"),
         ("Warp", "dev.warp.Warp-Stable"),
         ("Terminal", "com.apple.Terminal"),
     ]
@@ -394,6 +395,21 @@ struct TerminalActivator {
         // by project folder, same as any other IDE terminal. (#307)
         if let ideBundleId = termProgramToIDEBundleId[lower] {
             activateIDEWindow(bundleId: ideBundleId, cwd: session.cwd)
+            return
+        }
+
+        // --- TermiNai (Rust/gpui terminal): app-level activation only ---
+        // TermiNai (com.zacharyzhang.terminai) is a gpui app whose tabs — called "sessions" —
+        // live inside one window. It reports TERM_PROGRAM=terminai plus a compatibility
+        // KITTY_WINDOW_ID, but ships no URL scheme, no AppleScript dictionary (no
+        // NSAppleScriptEnabled, no .sdef), and its only CLI entry (`terminai hook`) writes
+        // agent events *into* the app: nothing focuses a session. Unknown to knownTerminals,
+        // the bundle id was caught earlier by resolveHostClientBundleId() — TermiNai looked
+        // like a GUI host client, so the click raised it and never reached this path. Raising
+        // it here is the same reachable behavior, now correctly attributed. Kept AFTER the
+        // tmux/Zellij branches so a multiplexer session hosted in TermiNai still gets its pane.
+        if session.termBundleId == "com.zacharyzhang.terminai" || lower == "terminai" {
+            activateByBundleId("com.zacharyzhang.terminai")
             return
         }
 

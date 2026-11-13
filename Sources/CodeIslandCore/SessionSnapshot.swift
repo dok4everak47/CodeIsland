@@ -977,6 +977,7 @@ public struct SessionSnapshot: Sendable {
             if lower == "com.mitchellh.ghostty" { return "Ghostty" }
             if lower.contains("iterm2") { return "iTerm2" }
             if lower.contains("kitty") { return "Kitty" }
+            if lower.contains("terminai") { return "TermiNai" }
             if lower.contains("alacritty") { return "Alacritty" }
             if lower.contains("wezterm") { return "WezTerm" }
             // IDE integrated terminals
@@ -1018,6 +1019,7 @@ public struct SessionSnapshot: Sendable {
         if lower.contains("warp") { return "Warp" }
         if lower.contains("alacritty") { return "Alacritty" }
         if lower.contains("kitty") { return "Kitty" }
+        if lower.contains("terminai") { return "TermiNai" }
         if lower.contains("terminal") { return "Terminal" }
         return app
     }
