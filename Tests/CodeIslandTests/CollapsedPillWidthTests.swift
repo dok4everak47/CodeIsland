@@ -32,10 +32,11 @@ final class CollapsedPillWidthTests: XCTestCase {
         let full = try renderedGeometry(scale: 100)
         let half = try renderedGeometry(scale: 50)
         XCTAssertGreaterThan(full.barRight - full.barLeft, half.barRight - half.barLeft + 10)
-        // 50 % keeps a shrunken mascot beside the notch (the old bare-notch
-        // pill looked empty), 100 % is notch + both wings.
-        XCTAssertEqual(half.barRight - half.barLeft, notch + 40, accuracy: 1)
-        XCTAssertEqual(full.barRight - full.barLeft, notch + 80, accuracy: 1)
+        // The capsule hugs its content: it pays for the mascot, its padding
+        // and the count, not for an empty capsule or an unused tool-name
+        // reserve either side (the old formula was notch + 134 there).
+        XCTAssertLessThan(full.barRight - full.barLeft, notch + 100)
+        XCTAssertLessThan(half.barRight - half.barLeft, full.barRight - full.barLeft - 8)
         // The mascot still shows at 100 % …
         XCTAssertGreaterThan(full.contentRight, full.barLeft + 20)
         // … and at the smallest setting, just smaller.
@@ -55,8 +56,11 @@ final class CollapsedPillWidthTests: XCTestCase {
             insets.append(g.contentRight - g.barLeft)
         }
         for (index, inset) in insets.enumerated() {
-            XCTAssertGreaterThan(inset, 20, "case \(index): the mascot drifted away from the pill's edge")
-            XCTAssertEqual(inset, insets[0], accuracy: 3, "case \(index): the mascot moved with the setting")
+            // The mascot starts a few points inside the pill's left end — never
+            // floating in the middle of it.
+            XCTAssertGreaterThan(inset, 15, "case \(index): the mascot drifted away from the pill's edge")
+            XCTAssertLessThan(inset, 45, "case \(index): content spills out of the left wing")
+            XCTAssertEqual(inset, insets[0], accuracy: 4, "case \(index): the mascot moved with the setting")
         }
     }
 
@@ -67,8 +71,8 @@ final class CollapsedPillWidthTests: XCTestCase {
         // now shrinks like the active bar, mascot included.
         let full = try renderedGeometry(scale: 100, sessions: false)
         let half = try renderedGeometry(scale: 50, sessions: false)
-        XCTAssertEqual(full.barRight - full.barLeft, notch + 80, accuracy: 1)
-        XCTAssertEqual(half.barRight - half.barLeft, notch + 40, accuracy: 1)
+        XCTAssertLessThan(full.barRight - full.barLeft, notch + 60)
+        XCTAssertLessThan(half.barRight - half.barLeft, full.barRight - full.barLeft - 6)
         // Even then the marker still draws its mascot.
         XCTAssertGreaterThan(half.contentRight, half.barLeft + 12)
     }

@@ -232,9 +232,9 @@ struct NotchPanelView: View {
         let nw = effectiveNotchW
         if showIdleIndicator {
             // Hovering still needs room for the controls, so only the resting
-            // marker follows the width setting down to the bare notch.
+            // marker hugs its mascot like the active bar does.
             if idleHovered { return nw + compactWingWidth * 2 + 80 }
-            return (hasNotch ? notchW : nw) + idleWingWidth * 2
+            return (hasNotch ? notchW : nw) + idleWingWidth
         }
         if !isActive { return hasNotch ? nw - 20 : nw }
         if shouldShowExpanded { return min(max(nw + 200, 580), maxPanelWidth) }
@@ -245,7 +245,7 @@ struct NotchPanelView: View {
     /// active bar's wings, mascot included, so the marker stays visible at the
     /// smallest setting instead of vanishing into the notch.
     private var idleWingWidth: CGFloat {
-        hasNotch ? collapsedWingSpan : compactWingWidth
+        hasNotch ? collapsedMascotSize + 6 + collapsedSlotMargin : compactWingWidth * 2
     }
 
     /// Room the collapsed right wing lacks to clear the notch; 0 whenever it fits.
@@ -267,27 +267,23 @@ struct NotchPanelView: View {
         shouldShowPrehover ? NotchHoverInteraction.prehoverWidthDelta : 0
     }
 
-    /// The collapsed bar without the chip / right-wing reserves and the hover
-    /// nudge. On a notched screen the setting shrinks the wings around the
-    /// physical notch; elsewhere it keeps scaling the simulated notch as before.
+    /// The collapsed bar without the hover nudge and, on external screens, the
+    /// chip / right-wing reserves.
     private var collapsedBarWidth: CGFloat {
-        if hasNotch {
-            return notchW + collapsedWingSpan * 2 + collapsedStatusExtra * collapsedWingScale
-        }
+        if hasNotch { return collapsedPillWidth - prehoverWidthExtra }
         return effectiveNotchW + compactWingWidth * 2 + collapsedStatusExtra
     }
 
-    /// The collapsed pill as the window gets it: the bar plus the chip / right
-    /// wing reserves, plus the hover nudge. The reserves scale with the wings
-    /// too, so a shrunk pill never grows back past the width the setting asked
-    /// for — content that no longer fits fades out instead.
+    /// The collapsed pill as the window gets it. On a notched screen it hugs
+    /// its content — the black capsule is only as wide as the mascot, the tool
+    /// name and the count need — so it stays clear of the menu bar instead of
+    /// hauling an empty capsule around. Elsewhere the old formula stands.
     private var collapsedPillWidth: CGFloat {
-        let wingExtras = quotaReserve.extraWidth + rightWingReserve
         if hasNotch {
-            let wings = collapsedWingSpan * 2
-                + (collapsedStatusExtra + wingExtras) * collapsedWingScale
-            return notchW + wings + prehoverWidthExtra
+            let slots = collapsedWingSlots
+            return notchW + slots.left + slots.right + prehoverWidthExtra
         }
+        let wingExtras = quotaReserve.extraWidth + rightWingReserve
         return effectiveNotchW + compactWingWidth * 2 + collapsedStatusExtra + wingExtras + prehoverWidthExtra
     }
 
@@ -312,28 +308,55 @@ struct NotchPanelView: View {
         NotchWidthMetrics.collapsedWingScale(collapsedWidthScale)
     }
 
-    /// Room each wing gets while the pill is collapsed on a notched screen:
-    /// half the extra width each, plus the plan-limit chip's reserve and the
-    /// tool name's on the left. The wings are pinned to the pill's edges, so
-    /// the empty part of a slot is just clearance over the cutout, and both
-    /// slots run down to zero as the setting shrinks — at 50 % nothing is left
-    /// but the hardware notch.
+    /// Room each wing gets while the pill is collapsed on a notched screen: the
+    /// content it draws plus the breathing room the setting allows. Content sits
+    /// at the pill's outer edge, so that room lands between it and the cutout.
     private var collapsedWingSlots: (left: CGFloat, right: CGFloat) {
-        let available = Swift.max(0, collapsedPillWidth - collapsedNotchGap)
-        let chipExtra = quotaReserve.extraWidth * (hasNotch ? collapsedWingScale : 1)
-        let half = Swift.max(0, (available - chipExtra) / 2)
-        let rightNeed = rightWingWidth > 0 ? rightWingWidth : compactWingWidth
-        let right = Swift.min(rightNeed, half)
-        let left = Swift.min(half + chipExtra + toolStatusExtra, Swift.max(0, available - right))
-        return (left, right)
+        let margin = collapsedSlotMargin
+        return (collapsedLeftContentWidth + margin, collapsedRightContentWidth + margin)
     }
 
-    /// The collapsed pill's horizontal offset. Only the chip reserves space on
-    /// one side, so the pill slides left by half of it; the tool-name room needs
-    /// no shift because the wings are pinned to the pill's own edges.
+    /// What the left wing draws: the mascot, plus the tool name or the
+    /// plan-limit chip while one of them owns the slot.
+    private var collapsedLeftContentWidth: CGFloat {
+        var width = collapsedMascotSize + 6
+        let extra = Swift.max(collapsedToolNameRoom, showClaudeQuota ? quotaChipWidth : 0)
+        if extra > 0 { width += 6 + extra }
+        return width
+    }
+
+    /// What the right wing draws — measured, so the bar only pays for it.
+    private var collapsedRightContentWidth: CGFloat {
+        rightWingWidth > 0 ? rightWingWidth : collapsedWingSpan
+    }
+
+    /// Room the tool name needs in the left wing, and only while one runs: an
+    /// empty reserve is exactly what used to keep the capsule wide.
+    private var collapsedToolNameRoom: CGFloat {
+        guard displayedToolStatus, displayedToolName != nil else { return 0 }
+        return toolStatusExtra
+    }
+
+    private var displayedToolName: String? {
+        let sid = appState.rotatingSessionId ?? appState.activeSessionId ?? appState.sessions.keys.sorted().first
+        guard let sid else { return nil }
+        return appState.sessions[sid]?.currentTool
+    }
+
+    /// Breathing room the pill keeps on each side of the cutout. Deliberately
+    /// small — every point here is menu bar the capsule covers — and the width
+    /// setting decides how much of it the island takes.
+    private var collapsedSlotMargin: CGFloat {
+        let factor = collapsedWingScale
+        return 4 + 6 * Swift.min(1, factor) + 8 * Swift.max(0, factor - 1)
+    }
+
+    /// The collapsed pill's horizontal offset: the gap over the cutout stays
+    /// centred even when one wing owns more room than the other.
     private var collapsedBarOffset: CGFloat {
         guard hasNotch, !shouldShowExpanded else { return 0 }
-        return -(quotaReserve.extraWidth * collapsedWingScale) / 2
+        let slots = collapsedWingSlots
+        return (slots.right - slots.left) / 2
     }
 
     /// The gap the collapsed pill leaves over the hardware cutout. The hover
@@ -401,10 +424,10 @@ struct NotchPanelView: View {
                     // Active: compact bar — wider version when expanded
                     HStack(spacing: 0) {
                         if hasNotch && !shouldShowExpanded {
-                            // Collapsed over the hardware cutout: each wing is
-                            // pinned to the pill's outer edge and clipped to its
-                            // slot, so the width setting can shrink the wings
-                            // down to the mascot and the notch.
+                            // Collapsed over the hardware cutout: each wing keeps
+                            // only the room its content needs, clipped at the
+                            // pill's edge, so the capsule stops where the
+                            // mascot, the tool name and the count stop.
                             collapsedWing(
                                 CompactLeftWing(
                                     appState: appState,
@@ -414,19 +437,19 @@ struct NotchPanelView: View {
                                     showToolStatus: showToolStatus,
                                     toolTextMaxWidth: Swift.min(
                                         ToolNameDisplay.compactMaxWidth,
-                                        Swift.max(0, collapsedWingSlots.left - collapsedWingSpan - 6)
+                                        collapsedToolNameRoom
                                     )
                                 ),
                                 slot: collapsedWingSlots.left,
                                 alignment: .leading,
-                                contentWidth: collapsedWingSpan
+                                contentWidth: collapsedLeftContentWidth
                             )
                             Color.clear.frame(width: collapsedGapWidth)
                             collapsedWing(
                                 CompactRightWing(appState: appState, expanded: false, hasNotch: hasNotch),
                                 slot: collapsedWingSlots.right,
                                 alignment: .trailing,
-                                contentWidth: rightWingWidth > 0 ? rightWingWidth : mascotSize
+                                contentWidth: collapsedRightContentWidth
                             )
                         } else {
                             CompactLeftWing(appState: appState, expanded: shouldShowExpanded, mascotSize: mascotSize, hasNotch: hasNotch, showToolStatus: showToolStatus)
