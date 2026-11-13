@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import CoreGraphics
 
 /// #219 — on external screens the simulated notch sits centered in the menu
@@ -21,6 +22,43 @@ enum MenuBarIconAvoidance {
 
     /// X-intervals (AppKit coordinates, in `screen`'s space) of visible
     /// status-bar windows on `screen`'s menu bar, excluding our own windows.
+    /// Status items as the accessibility layer sees them. macOS 26 draws the
+    /// menu bar in one WindowServer window, so the window list above yields
+    /// nothing there — but every status item still exposes its frame as an
+    /// `AXExtrasMenuBar` child of its app. Read-only, and CodeIsland already
+    /// holds the accessibility grant for terminal detection.
+    @MainActor
+    static func accessibilityStatusItemRanges() -> [ClosedRange<CGFloat>] {
+        guard AXIsProcessTrusted() else { return [] }
+        var ranges: [ClosedRange<CGFloat>] = []
+        for app in NSWorkspace.shared.runningApplications {
+            let pid = app.processIdentifier
+            guard pid > 0, app.activationPolicy != .prohibited else { continue }
+            let element = AXUIElementCreateApplication(pid)
+            AXUIElementSetMessagingTimeout(element, 0.5)
+            var extrasRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(element, kAXExtrasMenuBarAttribute as CFString, &extrasRef) == .success,
+                  let extrasRef else { continue }
+            var childrenRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(extrasRef as! AXUIElement, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+                  let children = childrenRef as? [AXUIElement] else { continue }
+            for child in children {
+                var positionRef: CFTypeRef?
+                var sizeRef: CFTypeRef?
+                guard AXUIElementCopyAttributeValue(child, kAXPositionAttribute as CFString, &positionRef) == .success,
+                      AXUIElementCopyAttributeValue(child, kAXSizeAttribute as CFString, &sizeRef) == .success,
+                      let positionRef, let sizeRef else { continue }
+                var origin = CGPoint.zero
+                var size = CGSize.zero
+                guard AXValueGetValue(positionRef as! AXValue, .cgPoint, &origin),
+                      AXValueGetValue(sizeRef as! AXValue, .cgSize, &size),
+                      size.width > 0 else { continue }
+                ranges.append(origin.x...(origin.x + size.width))
+            }
+        }
+        return ranges
+    }
+
     @MainActor
     static func occupiedMenuBarRanges(on screen: NSScreen) -> [ClosedRange<CGFloat>] {
         guard let windowInfo = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID)
@@ -60,6 +98,33 @@ enum MenuBarIconAvoidance {
             ranges.append(max(minX, screen.frame.minX)...min(maxX, screen.frame.maxX))
         }
         return ranges
+    }
+
+    /// Room between the notch's right edge and the nearest status item to its
+    /// right. `.infinity` when nothing sits in the way — a notched MacBook can
+    /// only shrink toward the cutout, so this is what caps the collapsed
+    /// capsule's right wing.
+    @MainActor
+    static func freeSpaceRightOfNotch(on screen: NSScreen, notchWidth: CGFloat) -> CGFloat {
+        let notchRight = screen.frame.midX + notchWidth / 2
+        var occupied = occupiedMenuBarRanges(on: screen)
+        if occupied.isEmpty {
+            // macOS 26 composites the whole menu bar in one window; fall back to
+            // the accessibility frames of the items themselves.
+            occupied = accessibilityStatusItemRanges()
+        }
+        let nearest = occupied
+            .map(\.lowerBound)
+            .filter { $0 >= notchRight }
+            .min()
+        guard let nearest else { return .infinity }
+        return Swift.max(0, nearest - notchRight)
+    }
+
+    /// Cuts a wing's room down so it ends `clearance` before the nearest icon.
+    static func clampedToMenuBar(slot: CGFloat, freeSpaceRight: CGFloat, clearance: CGFloat) -> CGFloat {
+        guard freeSpaceRight.isFinite else { return slot }
+        return Swift.max(0, Swift.min(slot, freeSpaceRight - clearance))
     }
 
     /// Pure placement: returns the X for `panelWidth` that avoids `occupied`
@@ -110,5 +175,21 @@ enum MenuBarIconAvoidance {
     private static func overlaps(x: CGFloat, width: CGFloat, ranges: [ClosedRange<CGFloat>]) -> Bool {
         let panelRange = x...(x + width)
         return ranges.contains { $0.overlaps(panelRange) }
+    }
+}
+
+/// Menu-bar room around the notch, measured off the status items and shared
+/// with the SwiftUI bar. Kept out of the view so the measurement can refresh on
+/// a timer instead of on every render.
+final class MenuBarSpace: ObservableObject {
+    /// Points between the notch's right edge and the nearest status item.
+    /// `.infinity` means the menu bar is clear.
+    @Published private(set) var freeSpaceRight: CGFloat = .infinity
+
+    func update(freeSpaceRight newValue: CGFloat) {
+        // Ignore sub-point churn so a pulsing icon doesn't relayout the bar.
+        let snapped = newValue.isFinite ? (newValue * 2).rounded() / 2 : .infinity
+        guard snapped != freeSpaceRight else { return }
+        freeSpaceRight = snapped
     }
 }

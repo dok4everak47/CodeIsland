@@ -75,4 +75,38 @@ final class MenuBarIconAvoidanceTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(x, screenMinX)
         XCTAssertLessThanOrEqual(x + 200, screenMaxX)
     }
+
+    func testWingRoomStopsBeforeTheNearestIcon() {
+        // Icons 10pt from the notch: the wing may only take 2 of them, with the
+        // 8pt clearance kept.
+        XCTAssertEqual(
+            MenuBarIconAvoidance.clampedToMenuBar(slot: 40, freeSpaceRight: 10, clearance: 8),
+            2
+        )
+        // Icons further out than the wing needs: nothing changes.
+        XCTAssertEqual(
+            MenuBarIconAvoidance.clampedToMenuBar(slot: 26, freeSpaceRight: 60, clearance: 8),
+            26
+        )
+        // An icon right against the notch leaves no room at all, never a
+        // negative one.
+        XCTAssertEqual(
+            MenuBarIconAvoidance.clampedToMenuBar(slot: 26, freeSpaceRight: 3, clearance: 8),
+            0
+        )
+        // A clear menu bar (external display, Bartender off) is no constraint.
+        XCTAssertEqual(
+            MenuBarIconAvoidance.clampedToMenuBar(slot: 26, freeSpaceRight: .infinity, clearance: 8),
+            26
+        )
+    }
+
+    func testMenuBarSpaceIgnoresSubPointChurn() {
+        let space = MenuBarSpace()
+        XCTAssertEqual(space.freeSpaceRight, .infinity)
+        space.update(freeSpaceRight: 42.2)
+        XCTAssertEqual(space.freeSpaceRight, 42, accuracy: 0.001)
+        space.update(freeSpaceRight: 42.1)
+        XCTAssertEqual(space.freeSpaceRight, 42, accuracy: 0.001)
+    }
 }

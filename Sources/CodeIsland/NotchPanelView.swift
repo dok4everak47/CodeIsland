@@ -147,6 +147,9 @@ struct NotchPanelView: View {
     let notchHeight: CGFloat
     let notchW: CGFloat
     let screenWidth: CGFloat
+    /// Room between the notch and the menu-bar icons, kept up to date by
+    /// `PanelWindowController`.
+    @ObservedObject var menuBarSpace = MenuBarSpace()
 
     @AppStorage(SettingsKey.contentFontSize) private var contentFontSize = SettingsDefaults.contentFontSize
     @AppStorage(SettingsKey.showAgentDetails) private var showAgentDetails = SettingsDefaults.showAgentDetails
@@ -313,7 +316,14 @@ struct NotchPanelView: View {
     /// at the pill's outer edge, so that room lands between it and the cutout.
     private var collapsedWingSlots: (left: CGFloat, right: CGFloat) {
         let margin = collapsedSlotMargin
-        return (collapsedLeftContentWidth + margin, collapsedRightContentWidth + margin)
+        // The only side with icons to dodge: the capsule may not reach past the
+        // nearest status item, so the count fades out when the room runs short.
+        let right = MenuBarIconAvoidance.clampedToMenuBar(
+            slot: collapsedRightContentWidth + margin,
+            freeSpaceRight: menuBarSpace.freeSpaceRight,
+            clearance: MenuBarIconAvoidance.margin
+        )
+        return (collapsedLeftContentWidth + margin, right)
     }
 
     /// What the left wing draws: the mascot, plus the tool name or the

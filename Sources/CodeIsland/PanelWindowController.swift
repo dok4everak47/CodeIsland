@@ -232,6 +232,10 @@ class PanelWindowController: NSObject, NSWindowDelegate {
     }
 
     private var visibilityTimer: Timer?
+    /// Menu-bar room around the notch, shared with the SwiftUI bar so the
+    /// collapsed capsule stops before the status items.
+    private let menuBarSpace = MenuBarSpace()
+    private var menuBarSpacePoller: Timer?
     private var autoScreenPoller: Timer?
     private var fullscreenPoller: Timer?
     private var isSessionObservationArmed = false
@@ -375,6 +379,7 @@ class PanelWindowController: NSObject, NSWindowDelegate {
         ) { [weak self] _ in
             Task { @MainActor in
                 guard let self = self else { return }
+                self.refreshMenuBarSpace()
                 self.refreshCurrentScreen()
                 if !self.fullscreenHide.isLatched { self.updateVisibility() }
             }
@@ -386,6 +391,8 @@ class PanelWindowController: NSObject, NSWindowDelegate {
         // Observe settings changes (display choice, panel height)
         observeSettingsChanges()
         configureAutoScreenPolling()
+        refreshMenuBarSpace()
+        configureMenuBarSpacePolling()
 
         // Global click monitor: close panel + repost click when clicking outside
         globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
@@ -414,12 +421,14 @@ class PanelWindowController: NSObject, NSWindowDelegate {
         let notchHeight = ScreenDetector.topBarHeight(for: screen)
         let notchW = ScreenDetector.notchWidth(for: screen)
 
+        refreshMenuBarSpace(for: screen)
         let rootView = NotchPanelView(
             appState: appState,
             hasNotch: hasNotch,
             notchHeight: notchHeight,
             notchW: notchW,
-            screenWidth: screen.frame.width
+            screenWidth: screen.frame.width,
+            menuBarSpace: menuBarSpace
         )
         let contentView = NotchHostingView(rootView: rootView)
         contentView.sizingOptions = []
@@ -568,6 +577,32 @@ class PanelWindowController: NSObject, NSWindowDelegate {
         autoScreenPoller = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.refreshCurrentScreen()
+            }
+        }
+    }
+
+    /// Re-measure the gap between the notch and the menu-bar icons. Cheap
+    /// enough at this cadence, and the icons only move when apps come and go —
+    /// which is also why activating an app refreshes it straight away.
+    private func refreshMenuBarSpace(for screen: NSScreen? = nil) {
+        let target = screen ?? chosenScreen()
+        guard ScreenDetector.screenHasNotch(target) else {
+            menuBarSpace.update(freeSpaceRight: .infinity)
+            return
+        }
+        menuBarSpace.update(
+            freeSpaceRight: MenuBarIconAvoidance.freeSpaceRightOfNotch(
+                on: target,
+                notchWidth: ScreenDetector.notchWidth(for: target)
+            )
+        )
+    }
+
+    private func configureMenuBarSpacePolling() {
+        menuBarSpacePoller?.invalidate()
+        menuBarSpacePoller = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.refreshMenuBarSpace()
             }
         }
     }

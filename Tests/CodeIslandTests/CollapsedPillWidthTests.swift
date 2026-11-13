@@ -78,7 +78,27 @@ final class CollapsedPillWidthTests: XCTestCase {
     }
 
     @MainActor
-    private func renderedGeometry(scale: Int, sessions: Bool = true)
+    func testMenuBarIconsCapTheRightWing() throws {
+        // A status item 12pt to the right of the notch: the capsule has to stop
+        // 8pt short of it, so the count loses its room and fades.
+        let free: CGFloat = 12
+        let space = MenuBarSpace()
+        space.update(freeSpaceRight: free)
+        let capped = try renderedGeometry(scale: 100, menuBarSpace: space)
+        let uncapped = try renderedGeometry(scale: 100)
+
+        let notchRight = (620 + notch) / 2
+        XCTAssertLessThanOrEqual(
+            capped.barRight, notchRight + free - MenuBarIconAvoidance.margin + 0.5,
+            "the capsule reaches under the menu bar icons"
+        )
+        XCTAssertLessThan(capped.barRight, uncapped.barRight - 5, "the icons did not change anything")
+        XCTAssertGreaterThanOrEqual(capped.barRight - capped.barLeft, notch - 1)
+        XCTAssertLessThanOrEqual(capped.contentRight, capped.notchLeft + 1)
+    }
+
+    @MainActor
+    private func renderedGeometry(scale: Int, sessions: Bool = true, menuBarSpace: MenuBarSpace = MenuBarSpace())
         throws -> (barLeft: CGFloat, barRight: CGFloat, contentRight: CGFloat, notchLeft: CGFloat) {
         _ = NSApplication.shared
         let suiteName = "CollapsedPillWidthTests"
@@ -102,7 +122,14 @@ final class CollapsedPillWidthTests: XCTestCase {
         }
 
         let windowWidth: CGFloat = 620, height: CGFloat = 64
-        let view = NotchPanelView(appState: state, hasNotch: true, notchHeight: 32, notchW: notch, screenWidth: 1512)
+        let view = NotchPanelView(
+            appState: state,
+            hasNotch: true,
+            notchHeight: 32,
+            notchW: notch,
+            screenWidth: 1512,
+            menuBarSpace: menuBarSpace
+        )
             .environment(\.mascotStaticTime, 5.2)
             .defaultAppStorage(suite)
             .background(Color(red: 1, green: 0, blue: 0))
