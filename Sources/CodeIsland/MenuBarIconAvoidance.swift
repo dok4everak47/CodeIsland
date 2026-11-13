@@ -20,34 +20,36 @@ enum MenuBarIconAvoidance {
     /// Breathing room kept between the island and the nearest status icon.
     static let margin: CGFloat = 8
 
-    /// X-intervals (AppKit coordinates, in `screen`'s space) of visible
-    /// status-bar windows on `screen`'s menu bar, excluding our own windows.
-    /// Status items as the accessibility layer sees them. macOS 26 draws the
-    /// menu bar in one WindowServer window, so the window list above yields
-    /// nothing there — but every status item still exposes its frame as an
-    /// `AXExtrasMenuBar` child of its app. Read-only, and CodeIsland already
-    /// holds the accessibility grant for terminal detection.
-    @MainActor
-    static func accessibilityStatusItemRanges() -> [ClosedRange<CGFloat>] {
+    /// X-intervals (AppKit coordinates) of the visible status items.
+    ///
+    /// The window list below is the cheap path, but macOS 26 composites the
+    /// whole menu bar into one WindowServer window and it comes up empty there;
+    /// every status item still exposes its frame as an `AXExtrasMenuBar` child
+    /// of its app, so this is the fallback. Read-only, and CodeIsland already
+    /// holds the accessibility grant for terminal detection. Takes the pids so
+    /// the caller can read `NSWorkspace` on the main thread and walk the apps
+    /// off it.
+    nonisolated static func accessibilityStatusItemRanges(pids: [pid_t]) -> [ClosedRange<CGFloat>] {
         guard AXIsProcessTrusted() else { return [] }
         var ranges: [ClosedRange<CGFloat>] = []
-        for app in NSWorkspace.shared.runningApplications {
-            let pid = app.processIdentifier
-            guard pid > 0, app.activationPolicy != .prohibited else { continue }
+        for pid in pids where pid > 0 {
             let element = AXUIElementCreateApplication(pid)
             AXUIElementSetMessagingTimeout(element, 0.5)
             var extrasRef: CFTypeRef?
             guard AXUIElementCopyAttributeValue(element, kAXExtrasMenuBarAttribute as CFString, &extrasRef) == .success,
-                  let extrasRef else { continue }
+                  let extras = extrasRef,
+                  CFGetTypeID(extras) == AXUIElementGetTypeID() else { continue }
             var childrenRef: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(extrasRef as! AXUIElement, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+            guard AXUIElementCopyAttributeValue(extras as! AXUIElement, kAXChildrenAttribute as CFString, &childrenRef) == .success,
                   let children = childrenRef as? [AXUIElement] else { continue }
             for child in children {
                 var positionRef: CFTypeRef?
                 var sizeRef: CFTypeRef?
                 guard AXUIElementCopyAttributeValue(child, kAXPositionAttribute as CFString, &positionRef) == .success,
                       AXUIElementCopyAttributeValue(child, kAXSizeAttribute as CFString, &sizeRef) == .success,
-                      let positionRef, let sizeRef else { continue }
+                      let positionRef, let sizeRef,
+                      CFGetTypeID(positionRef) == AXValueGetTypeID(),
+                      CFGetTypeID(sizeRef) == AXValueGetTypeID() else { continue }
                 var origin = CGPoint.zero
                 var size = CGSize.zero
                 guard AXValueGetValue(positionRef as! AXValue, .cgPoint, &origin),
@@ -59,6 +61,8 @@ enum MenuBarIconAvoidance {
         return ranges
     }
 
+    /// X-intervals (AppKit coordinates, in `screen`'s space) of visible
+    /// status-bar windows on `screen`'s menu bar, excluding our own windows.
     @MainActor
     static func occupiedMenuBarRanges(on screen: NSScreen) -> [ClosedRange<CGFloat>] {
         guard let windowInfo = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID)
@@ -100,24 +104,12 @@ enum MenuBarIconAvoidance {
         return ranges
     }
 
-    /// Room between the notch's right edge and the nearest status item to its
-    /// right. `.infinity` when nothing sits in the way — a notched MacBook can
-    /// only shrink toward the cutout, so this is what caps the collapsed
-    /// capsule's right wing.
-    @MainActor
-    static func freeSpaceRightOfNotch(on screen: NSScreen, notchWidth: CGFloat) -> CGFloat {
-        let notchRight = screen.frame.midX + notchWidth / 2
-        var occupied = occupiedMenuBarRanges(on: screen)
-        if occupied.isEmpty {
-            // macOS 26 composites the whole menu bar in one window; fall back to
-            // the accessibility frames of the items themselves.
-            occupied = accessibilityStatusItemRanges()
+    /// Pure: gap between the notch's right edge and the nearest range to its
+    /// right, `.infinity` when nothing is in the way.
+    static func freeSpaceRight(notchRight: CGFloat, occupied: [ClosedRange<CGFloat>]) -> CGFloat {
+        guard let nearest = occupied.map(\.lowerBound).filter({ $0 >= notchRight }).min() else {
+            return .infinity
         }
-        let nearest = occupied
-            .map(\.lowerBound)
-            .filter { $0 >= notchRight }
-            .min()
-        guard let nearest else { return .infinity }
         return Swift.max(0, nearest - notchRight)
     }
 

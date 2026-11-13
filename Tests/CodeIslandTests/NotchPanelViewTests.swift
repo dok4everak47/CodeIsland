@@ -284,33 +284,6 @@ final class NotchHoverInteractionTests: XCTestCase {
         XCTAssertEqual(NotchWidthMetrics.collapsedWingScale(900), 2)
     }
 
-    func testCollapsedWidthShrinksTheWingsNotTheNotch() {
-        // 220pt notch + 82pt of wings.
-        XCTAssertEqual(
-            NotchWidthMetrics.collapsedWidth(notchW: 220, wingWidth: 82, collapsedWidthScale: 100),
-            302,
-            accuracy: 0.001
-        )
-        // Halfway down the lower half the wings are halved, the notch is not.
-        XCTAssertEqual(
-            NotchWidthMetrics.collapsedWidth(notchW: 220, wingWidth: 82, collapsedWidthScale: 75),
-            220 + 41,
-            accuracy: 0.001
-        )
-        // 50 % sits flush with the hardware cutout — narrower would be invisible
-        // against it anyway.
-        XCTAssertEqual(
-            NotchWidthMetrics.collapsedWidth(notchW: 220, wingWidth: 82, collapsedWidthScale: 50),
-            220,
-            accuracy: 0.001
-        )
-        XCTAssertEqual(
-            NotchWidthMetrics.collapsedWidth(notchW: 220, wingWidth: 82, collapsedWidthScale: 150),
-            220 + 164,
-            accuracy: 0.001
-        )
-    }
-
     func testWingContentOpacityFadesOnlyWhileTheSlotIsTooNarrow() {
         // Slot fits the content: fully visible, whatever the scale asked for.
         XCTAssertEqual(NotchWidthMetrics.wingContentOpacity(slot: 41, contentWidth: 33), 1)

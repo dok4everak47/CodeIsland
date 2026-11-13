@@ -30,12 +30,6 @@ enum NotchWidthMetrics {
         return CGFloat(clamped - NotchWidthScale.min) / CGFloat(100 - NotchWidthScale.min)
     }
 
-    /// Total collapsed width on a notched display: the physical notch plus the
-    /// scaled wings. Never narrower than the notch itself.
-    static func collapsedWidth(notchW: CGFloat, wingWidth: CGFloat, collapsedWidthScale: Int) -> CGFloat {
-        notchW + Swift.max(0, wingWidth) * collapsedWingScale(collapsedWidthScale)
-    }
-
     /// Opacity for a wing's content while the pill shrinks: fully visible once
     /// the slot fits the content, gone once the slot is `fadeSpan` narrower — the
     /// content is clipped to its slot either way, so fading keeps it from looking
@@ -240,8 +234,22 @@ struct NotchPanelView: View {
             return (hasNotch ? notchW : nw) + idleWingWidth
         }
         if !isActive { return hasNotch ? nw - 20 : nw }
-        if shouldShowExpanded { return min(max(nw + 200, 580), maxPanelWidth) }
+        if shouldShowExpanded {
+            // The card's top strip sits in the menu bar too: keep it off the
+            // icons as well, not just the collapsed capsule.
+            return min(max(nw + 200, 580), maxPanelWidth, expandedMenuBarCap)
+        }
         return collapsedPillWidth
+    }
+
+    /// The widest expanded card that still clears the nearest status item.
+    /// `.infinity` when the menu bar is clear or nothing has been measured.
+    private var expandedMenuBarCap: CGFloat {
+        let free = menuBarSpace.freeSpaceRight
+        guard hasNotch, free.isFinite else { return .infinity }
+        // Floor it at the card's own minimum: a cramped card that overlaps an
+        // icon beats a card too narrow to read.
+        return Swift.max(notchW + 200, notchW + 2 * Swift.max(0, free - MenuBarIconAvoidance.margin))
     }
 
     /// Width of the resting idle marker's wing — the setting scales it like the
@@ -330,7 +338,10 @@ struct NotchPanelView: View {
     /// plan-limit chip while one of them owns the slot.
     private var collapsedLeftContentWidth: CGFloat {
         var width = collapsedMascotSize + 6
-        let extra = Swift.max(collapsedToolNameRoom, showClaudeQuota ? quotaChipWidth : 0)
+        // The chip only gets the slot while no tool name owns it — reserving
+        // for both is what kept the capsule wide for nothing.
+        let chipRoom = (collapsedToolNameRoom == 0 && showClaudeQuota) ? quotaChipWidth : 0
+        let extra = Swift.max(collapsedToolNameRoom, chipRoom)
         if extra > 0 { width += 6 + extra }
         return width
     }
@@ -872,8 +883,10 @@ private struct CompactLeftWing: View {
                     .transition(.opacity)
                     .animation(.easeInOut(duration: 0.3), value: displaySource)
 
-                // On notch screens, show tool name only (no description, space is tight)
-                if hasNotch, showToolStatus, let tool = shownTool {
+                // On notch screens, show tool name only (no description, space is
+                // tight). No room means no name: the collapsed capsule only pays
+                // for a tool while one actually runs.
+                if hasNotch, showToolStatus, toolTextMaxWidth > 0, let tool = shownTool {
                     Text(ToolNameDisplay.compact(tool))
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
                         .foregroundStyle(toolStatusColor(tool))

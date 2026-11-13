@@ -236,6 +236,7 @@ class PanelWindowController: NSObject, NSWindowDelegate {
     /// collapsed capsule stops before the status items.
     private let menuBarSpace = MenuBarSpace()
     private var menuBarSpacePoller: Timer?
+    private var isScanningMenuBar = false
     private var autoScreenPoller: Timer?
     private var fullscreenPoller: Timer?
     private var isSessionObservationArmed = false
@@ -581,28 +582,57 @@ class PanelWindowController: NSObject, NSWindowDelegate {
         }
     }
 
-    /// Re-measure the gap between the notch and the menu-bar icons. Cheap
-    /// enough at this cadence, and the icons only move when apps come and go —
-    /// which is also why activating an app refreshes it straight away.
+    /// Re-measure the gap between the notch and the menu-bar icons: the window
+    /// list first, then — on the macOS versions that composite the whole menu
+    /// bar into one window — the accessibility frames, which are read off the
+    /// main thread because walking every running app's extras can block.
     private func refreshMenuBarSpace(for screen: NSScreen? = nil) {
         let target = screen ?? chosenScreen()
         guard ScreenDetector.screenHasNotch(target) else {
             menuBarSpace.update(freeSpaceRight: .infinity)
             return
         }
-        menuBarSpace.update(
-            freeSpaceRight: MenuBarIconAvoidance.freeSpaceRightOfNotch(
-                on: target,
-                notchWidth: ScreenDetector.notchWidth(for: target)
+        let notchRight = target.frame.midX + ScreenDetector.notchWidth(for: target) / 2
+        let windowRanges = MenuBarIconAvoidance.occupiedMenuBarRanges(on: target)
+        if windowRanges.contains(where: { $0.lowerBound >= notchRight }) {
+            menuBarSpace.update(
+                freeSpaceRight: MenuBarIconAvoidance.freeSpaceRight(notchRight: notchRight, occupied: windowRanges)
             )
-        )
+            return
+        }
+        menuBarSpace.update(freeSpaceRight: .infinity)
+        // One scan at a time: an unresponsive app can hold its AX query for the
+        // whole timeout, and stacked scans would only add load.
+        guard !isScanningMenuBar else { return }
+        isScanningMenuBar = true
+        let pids = NSWorkspace.shared.runningApplications
+            .filter { $0.processIdentifier > 0 && $0.activationPolicy != .prohibited }
+            .map(\.processIdentifier)
+        Task.detached(priority: .utility) { [weak self] in
+            let ranges = MenuBarIconAvoidance.accessibilityStatusItemRanges(pids: pids)
+            let free = MenuBarIconAvoidance.freeSpaceRight(notchRight: notchRight, occupied: ranges)
+            await MainActor.run {
+                self?.isScanningMenuBar = false
+                self?.menuBarSpace.update(freeSpaceRight: free)
+            }
+        }
     }
 
     private func configureMenuBarSpacePolling() {
         menuBarSpacePoller?.invalidate()
-        menuBarSpacePoller = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+        // Icons only move when apps come and go, and activating an app
+        // refreshes straight away, so the timer is just the safety net.
+        menuBarSpacePoller = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.refreshMenuBarSpace()
+            }
+        }
+        for name in [NSWorkspace.didLaunchApplicationNotification,
+                     NSWorkspace.didTerminateApplicationNotification] {
+            NSWorkspace.shared.notificationCenter.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in self?.refreshMenuBarSpace() }
             }
         }
     }
