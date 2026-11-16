@@ -19,13 +19,16 @@ final class MenuBarPanelControllerTests: XCTestCase {
 
     private func makeController(
         anchor: NSRect,
+        pointer: NSPoint = .zero,
         grace: TimeInterval = 0.05
     ) throws -> (MenuBarPanelController, AppState) {
         let appState = AppState()
         let controller = MenuBarPanelController(appState: appState)
         controller.anchorProvider = { anchor }
+        controller.pointerLocation = { pointer }
         controller.hoverGrace = grace
-        controller.activate()
+        // The real timer would poll the real pointer, not the test's.
+        controller.activate(trackingHover: false)
         self.controller = controller
         self.state = appState
         return (controller, appState)
@@ -105,10 +108,13 @@ final class MenuBarPanelControllerTests: XCTestCase {
             throw XCTSkip("no screen to place the drop-down on")
         }
         let anchor = NSRect(x: screen.frame.maxX - 40, y: screen.frame.maxY - 12, width: 24, height: 24)
-        let (controller, _) = try makeController(anchor: anchor)
+        let (controller, _) = try makeController(
+            anchor: anchor,
+            pointer: NSPoint(x: anchor.midX, y: anchor.midY)
+        )
         XCTAssertFalse(controller.isOpen)
 
-        controller.iconHoverChanged(true)
+        controller.pollHover()
         XCTAssertTrue(controller.isOpen, "the pointer on the icon has to bring the card up")
     }
 
@@ -119,13 +125,17 @@ final class MenuBarPanelControllerTests: XCTestCase {
             throw XCTSkip("no screen to place the drop-down on")
         }
         let anchor = NSRect(x: screen.frame.maxX - 40, y: screen.frame.maxY - 12, width: 24, height: 24)
-        let (controller, _) = try makeController(anchor: anchor, grace: 0.05)
-        controller.iconHoverChanged(true)
+        var pointer = NSPoint(x: anchor.midX, y: anchor.midY)
+        let (controller, _) = try makeController(anchor: anchor, pointer: pointer, grace: 0.05)
+        controller.pointerLocation = { pointer }
+        controller.pollHover()
         XCTAssertTrue(controller.isOpen)
 
-        controller.cardHoverChanged(false)
+        pointer = NSPoint(x: screen.frame.midX, y: screen.frame.midY)
+        controller.pollHover()
         XCTAssertTrue(controller.isOpen, "the grace period has not run out yet")
-        await wait(0.25)
+        await wait(0.2)
+        controller.pollHover()
         XCTAssertFalse(controller.isOpen)
     }
 
@@ -136,14 +146,18 @@ final class MenuBarPanelControllerTests: XCTestCase {
             throw XCTSkip("no screen to place the drop-down on")
         }
         let anchor = NSRect(x: screen.frame.maxX - 40, y: screen.frame.maxY - 12, width: 24, height: 24)
-        let (controller, _) = try makeController(anchor: anchor, grace: 0.05)
-        controller.iconHoverChanged(true)
+        var pointer = NSPoint(x: anchor.midX, y: anchor.midY)
+        let (controller, _) = try makeController(anchor: anchor, pointer: pointer, grace: 0.05)
+        controller.pointerLocation = { pointer }
+        controller.pollHover()
         XCTAssertTrue(controller.isOpen)
+        let window = try XCTUnwrap(controller.debugWindow)
+        await wait(0.3)
 
-        // The pointer crosses the gap: off the icon, then on the card.
-        controller.iconHoverChanged(false)
-        controller.cardHoverChanged(true)
-        await wait(0.25)
+        pointer = NSPoint(x: window.frame.midX, y: window.frame.midY)
+        controller.pollHover()
+        await wait(0.2)
+        controller.pollHover()
         XCTAssertTrue(controller.isOpen, "the pointer is on the card, not away from it")
     }
 
@@ -153,13 +167,18 @@ final class MenuBarPanelControllerTests: XCTestCase {
             throw XCTSkip("no screen to place the drop-down on")
         }
         let anchor = NSRect(x: screen.frame.maxX - 40, y: screen.frame.maxY - 12, width: 24, height: 24)
-        let (controller, appState) = try makeController(anchor: anchor, grace: 0.05)
+        let (controller, appState) = try makeController(
+            anchor: anchor,
+            pointer: NSPoint(x: 0, y: 0),
+            grace: 0.05
+        )
         appState.surface = .approvalCard(sessionId: "s1")
         controller.open()
         await wait(0.3)
 
-        controller.iconHoverChanged(false)
-        await wait(0.25)
+        controller.pollHover()
+        await wait(0.2)
+        controller.pollHover()
         XCTAssertTrue(controller.isOpen)
         XCTAssertEqual(appState.surface, .approvalCard(sessionId: "s1"))
     }

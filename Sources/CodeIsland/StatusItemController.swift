@@ -21,10 +21,6 @@ final class StatusItemController: NSObject {
     /// pointer is still sitting on. Without it (the classic notch mode's
     /// optional icon) the click falls back to the menu.
     var onShowPanel: (() -> Void)?
-    /// The pointer reaching (and leaving) the icon. Menu-bar mode opens on
-    /// hover, so this is the gesture, not a nicety.
-    var onHoverChanged: ((Bool) -> Void)?
-    private var hoverTrackingArea: NSTrackingArea?
 
     private var statusItem: NSStatusItem?
     private var badgeDot: NSView?
@@ -84,7 +80,6 @@ final class StatusItemController: NSObject {
             let dot = Self.makeBadgeDot()
             button.addSubview(dot)
             badgeDot = dot
-            installHoverTracking(on: button)
         }
         statusItem = item
         updateBadge()
@@ -107,34 +102,8 @@ final class StatusItemController: NSObject {
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.minY - 4), in: button)
     }
 
-    /// A tracking area, not a mouse-moved monitor: the icon is an AppKit
-    /// status item, and AppKit delivers enter/exit to its tracking areas even
-    /// while another app is active — with no permission to ask for.
-    private func installHoverTracking(on button: NSStatusBarButton) {
-        if let hoverTrackingArea { button.removeTrackingArea(hoverTrackingArea) }
-        let area = NSTrackingArea(
-            rect: .zero,
-            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        button.addTrackingArea(area)
-        hoverTrackingArea = area
-    }
-
-    // The selector is spelled out: Swift would otherwise name it
-    // `mouseEnteredWithEvent:`, and AppKit would find nothing to call.
-    @objc(mouseEntered:) func mouseEntered(with event: NSEvent) {
-        onHoverChanged?(true)
-    }
-
-    @objc(mouseExited:) func mouseExited(with event: NSEvent) {
-        onHoverChanged?(false)
-    }
-
     private func hideStatusItem() {
         if let statusItem {
-            hoverTrackingArea = nil
             NSStatusBar.system.removeStatusItem(statusItem)
             self.statusItem = nil
             badgeDot = nil

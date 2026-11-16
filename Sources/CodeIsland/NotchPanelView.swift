@@ -161,10 +161,6 @@ struct NotchPanelView: View {
     /// Reports the black card's own size. The drop-down sizes its window to
     /// exactly this, so no transparent window area is left to swallow clicks.
     var onCardSizeChange: ((CGSize) -> Void)?
-    /// Reports the pointer arriving on and leaving the card. In the drop-down
-    /// that is what keeps it up: hovering it is how the user answers, so
-    /// walking onto it must not count as walking away from the icon.
-    var onCardHover: ((Bool) -> Void)?
 
     @AppStorage(SettingsKey.contentFontSize) private var contentFontSize = SettingsDefaults.contentFontSize
     @AppStorage(SettingsKey.showAgentDetails) private var showAgentDetails = SettingsDefaults.showAgentDetails
@@ -712,7 +708,6 @@ struct NotchPanelView: View {
                 // travels to the terminal underneath.
                 if placement == .menuBar {
                     isHovered = hovering
-                    onCardHover?(hovering)
                     return
                 }
                 // Idle indicator hover — delay un-hover to prevent oscillation when

@@ -123,9 +123,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             StatusItemController.shared.onShowPanel = { [weak controller] in
                 controller?.open()
             }
-            StatusItemController.shared.onHoverChanged = { [weak controller] inside in
-                controller?.iconHoverChanged(inside)
-            }
         } else {
             panelController = PanelWindowController(appState: appState)
             panelController?.showPanel()

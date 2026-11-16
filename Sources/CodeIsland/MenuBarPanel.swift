@@ -104,13 +104,19 @@ final class MenuBarPanelController: NSObject {
     private var isSurfaceObservationArmed = false
     private var isWatching = false
     private var isAwaitingFirstSize = false
-    private var hoverCloseWork: DispatchWorkItem?
+    private var hoverTimer: Timer?
+    private var lastInsideHover = Date.distantPast
 
     /// How long the pointer may be outside both the icon and the card before
     /// the drop-down puts itself away. The two are six points apart, so a
     /// pointer on its way from one to the other is briefly over neither:
     /// closing on the first such frame would make the card unreachable.
     var hoverGrace: TimeInterval = 0.3
+    /// How often the pointer is looked at. Fast enough that the card is there
+    /// by the time the pointer arrives, slow enough to cost nothing.
+    var hoverInterval: TimeInterval = 0.1
+    /// Where the pointer is. `NSEvent` needs a window server, tests do not.
+    var pointerLocation: () -> NSPoint = { NSEvent.mouseLocation }
 
     /// The status item button in screen coordinates — the card hangs under it.
     var anchorProvider: () -> NSRect? = { nil }
@@ -129,53 +135,55 @@ final class MenuBarPanelController: NSObject {
 
     /// Start watching the surface: a permission request opening while the panel
     /// is closed has to come to the user, exactly like the notch version.
-    func activate() {
+    func activate(trackingHover: Bool = true) {
         appState.followUps.isPointerOverPanel = { [weak self] in
             guard let self, let panel = self.panel, panel.isVisible else { return false }
             return panel.frame.contains(NSEvent.mouseLocation)
         }
         isWatching = true
+        if trackingHover { startHoverTracking() }
         armSurfaceObservation()
+    }
+
+    deinit {
+        hoverTimer?.invalidate()
     }
 
     // MARK: - Hover
 
     /// Hover is the whole gesture in menu-bar mode: the pointer reaching the
-    /// icon opens the card, and leaving both puts it away again.
-    func iconHoverChanged(_ inside: Bool) {
+    /// icon brings the card down, and being away from both puts it away.
+    ///
+    /// A timer reading the pointer, not a tracking area: a status item's button
+    /// lives in a status-bar window whose tracking never reliably reached the
+    /// island, and polling is one rect test per tick with no permission at all.
+    func startHoverTracking() {
+        guard hoverTimer == nil else { return }
+        let timer = Timer(timeInterval: hoverInterval, repeats: true) { [weak self] _ in
+            // The run loop this timer lives on is the main one, so there is no
+            // hop to make: ten of those a second would be ten tasks a second.
+            MainActor.assumeIsolated { self?.pollHover() }
+        }
+        // Common modes: the pointer still has to count while a menu is open.
+        RunLoop.main.add(timer, forMode: .common)
+        hoverTimer = timer
+    }
+
+    /// One look at the pointer.
+    func pollHover() {
         guard isWatching else { return }
-        guard inside else {
-            if isOpen { scheduleHoverClose() }
+        let point = pointerLocation()
+        let overIcon = anchorProvider()?.insetBy(dx: -1, dy: -1).contains(point) ?? false
+        // The card counts as inside too: answering it means hovering it.
+        let overCard = panel?.isVisible == true
+            && (panel?.frame.insetBy(dx: -1, dy: -1).contains(point) ?? false)
+        guard overIcon || overCard else {
+            guard isOpen, Date().timeIntervalSince(lastInsideHover) > hoverGrace else { return }
+            close()
             return
         }
-        cancelHoverClose()
-        if !isOpen { open() }
-    }
-
-    /// The card counts as inside: answering it must not put it away.
-    func cardHoverChanged(_ inside: Bool) {
-        guard isWatching else { return }
-        if inside {
-            cancelHoverClose()
-        } else if isOpen {
-            scheduleHoverClose()
-        }
-    }
-
-    private func scheduleHoverClose() {
-        guard hoverCloseWork == nil else { return }
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.hoverCloseWork = nil
-            self.close()
-        }
-        hoverCloseWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + hoverGrace, execute: work)
-    }
-
-    private func cancelHoverClose() {
-        hoverCloseWork?.cancel()
-        hoverCloseWork = nil
+        lastInsideHover = Date()
+        if overIcon, !isOpen { open() }
     }
 
     func toggle() {
@@ -183,7 +191,7 @@ final class MenuBarPanelController: NSObject {
     }
 
     func open() {
-        cancelHoverClose()
+        lastInsideHover = Date()
         guard !isOpen else { return }
         guard let screen = (anchorProvider().map(screenContaining)) ?? NSScreen.main ?? NSScreen.screens.first else {
             return
@@ -215,7 +223,6 @@ final class MenuBarPanelController: NSObject {
     }
 
     func close() {
-        cancelHoverClose()
         guard isOpen else { return }
         guard canDismiss else { return }
         isOpen = false
@@ -278,9 +285,6 @@ final class MenuBarPanelController: NSObject {
             cardSpaceBudget: budget,
             onCardSizeChange: { [weak self] size in
                 self?.cardSizeChanged(size)
-            },
-            onCardHover: { [weak self] inside in
-                self?.cardHoverChanged(inside)
             }
         )
         contentScreen = screen
