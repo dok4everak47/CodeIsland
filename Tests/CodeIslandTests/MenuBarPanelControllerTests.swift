@@ -17,10 +17,14 @@ final class MenuBarPanelControllerTests: XCTestCase {
         try await super.tearDown()
     }
 
-    private func makeController(anchor: NSRect) throws -> (MenuBarPanelController, AppState) {
+    private func makeController(
+        anchor: NSRect,
+        grace: TimeInterval = 0.05
+    ) throws -> (MenuBarPanelController, AppState) {
         let appState = AppState()
         let controller = MenuBarPanelController(appState: appState)
         controller.anchorProvider = { anchor }
+        controller.hoverGrace = grace
         controller.activate()
         self.controller = controller
         self.state = appState
@@ -91,5 +95,72 @@ final class MenuBarPanelControllerTests: XCTestCase {
             appState.surface, .collapsed,
             "nothing to list: the drop-down shows the bar, not an empty list"
         )
+    }
+
+    // MARK: - Hover
+
+    /// Pointing at the icon is the whole gesture: no click anywhere.
+    func testHoveringTheIconOpensTheDropDown() throws {
+        guard let screen = NSScreen.main else {
+            throw XCTSkip("no screen to place the drop-down on")
+        }
+        let anchor = NSRect(x: screen.frame.maxX - 40, y: screen.frame.maxY - 12, width: 24, height: 24)
+        let (controller, _) = try makeController(anchor: anchor)
+        XCTAssertFalse(controller.isOpen)
+
+        controller.iconHoverChanged(true)
+        XCTAssertTrue(controller.isOpen, "the pointer on the icon has to bring the card up")
+    }
+
+    /// Leaving both the icon and the card puts it away, after the short grace
+    /// the pointer needs to cross the gap between them.
+    func testLeavingTheCardPutsItAway() async throws {
+        guard let screen = NSScreen.main else {
+            throw XCTSkip("no screen to place the drop-down on")
+        }
+        let anchor = NSRect(x: screen.frame.maxX - 40, y: screen.frame.maxY - 12, width: 24, height: 24)
+        let (controller, _) = try makeController(anchor: anchor, grace: 0.05)
+        controller.iconHoverChanged(true)
+        XCTAssertTrue(controller.isOpen)
+
+        controller.cardHoverChanged(false)
+        XCTAssertTrue(controller.isOpen, "the grace period has not run out yet")
+        await wait(0.25)
+        XCTAssertFalse(controller.isOpen)
+    }
+
+    /// Walking from the icon onto the card must not drop it — answering a
+    /// card means hovering it.
+    func testWalkingOntoTheCardKeepsItUp() async throws {
+        guard let screen = NSScreen.main else {
+            throw XCTSkip("no screen to place the drop-down on")
+        }
+        let anchor = NSRect(x: screen.frame.maxX - 40, y: screen.frame.maxY - 12, width: 24, height: 24)
+        let (controller, _) = try makeController(anchor: anchor, grace: 0.05)
+        controller.iconHoverChanged(true)
+        XCTAssertTrue(controller.isOpen)
+
+        // The pointer crosses the gap: off the icon, then on the card.
+        controller.iconHoverChanged(false)
+        controller.cardHoverChanged(true)
+        await wait(0.25)
+        XCTAssertTrue(controller.isOpen, "the pointer is on the card, not away from it")
+    }
+
+    /// A request waiting for an answer outlives the pointer walking away.
+    func testHoveringAwayCannotDismissAnOpenRequest() async throws {
+        guard let screen = NSScreen.main else {
+            throw XCTSkip("no screen to place the drop-down on")
+        }
+        let anchor = NSRect(x: screen.frame.maxX - 40, y: screen.frame.maxY - 12, width: 24, height: 24)
+        let (controller, appState) = try makeController(anchor: anchor, grace: 0.05)
+        appState.surface = .approvalCard(sessionId: "s1")
+        controller.open()
+        await wait(0.3)
+
+        controller.iconHoverChanged(false)
+        await wait(0.25)
+        XCTAssertTrue(controller.isOpen)
+        XCTAssertEqual(appState.surface, .approvalCard(sessionId: "s1"))
     }
 }

@@ -77,7 +77,7 @@ final class L10n: ObservableObject {
         "hide_when_no_session": "Auto-hide When No Active Session",
         "hide_when_no_session_desc": "Hide panel completely when no AI agents are running",
         "menu_bar_mode": "Menu Bar Panel",
-        "menu_bar_mode_desc": "Leave the notch alone: the panel drops down from a menu bar icon (restart to apply)",
+        "menu_bar_mode_desc": "Leave the notch alone: hover the menu bar icon and the panel drops down from it (restart to apply)",
         "menu_bar_panel": "Open Panel",
 
         "auto_expand_on_permission": "Auto-Expand on Approval",
@@ -697,7 +697,7 @@ final class L10n: ObservableObject {
         "hide_when_no_session": "Ohne aktive Sitzung automatisch ausblenden",
         "hide_when_no_session_desc": "Panel vollständig ausblenden, wenn keine AI-Agenten laufen",
         "menu_bar_mode": "Menüleisten-Panel",
-        "menu_bar_mode_desc": "Der Notch bleibt frei: das Panel klappt aus einem Menüleisten-Symbol herunter (Neustart nötig)",
+        "menu_bar_mode_desc": "Der Notch bleibt frei: das Panel klappt herunter, sobald der Zeiger auf dem Menüleisten-Symbol ist (Neustart nötig)",
         "menu_bar_panel": "Panel öffnen",
 
         "auto_expand_on_permission": "Bei Freigabe automatisch erweitern",
@@ -1317,7 +1317,7 @@ final class L10n: ObservableObject {
         "hide_when_no_session": "无活跃会话时自动隐藏",
         "hide_when_no_session_desc": "没有 AI Agent 运行时完全隐藏面板",
         "menu_bar_mode": "菜单栏面板",
-        "menu_bar_mode_desc": "不再占用刘海：改由菜单栏图标向下展开面板（重启后生效）",
+        "menu_bar_mode_desc": "不再占用刘海：鼠标悬停菜单栏图标即向下展开面板（重启后生效）",
         "menu_bar_panel": "展开面板",
 
         "auto_expand_on_permission": "权限请求时自动展开",
@@ -1937,7 +1937,7 @@ final class L10n: ObservableObject {
         "hide_when_no_session": "無活躍會話時自動隱藏",
         "hide_when_no_session_desc": "沒有 AI Agent 執行時完全隱藏面板",
         "menu_bar_mode": "選單列面板",
-        "menu_bar_mode_desc": "不再佔用瀏海：改由選單列圖示向下展開面板（重新啟動後生效）",
+        "menu_bar_mode_desc": "不再佔用瀏海：滑鼠懸停選單列圖示即向下展開面板（重新啟動後生效）",
         "menu_bar_panel": "展開面板",
 
         "auto_expand_on_permission": "權限請求時自動展開",
@@ -2557,7 +2557,7 @@ final class L10n: ObservableObject {
         "hide_when_no_session": "アクティブなセッションがないとき自動で隠す",
         "hide_when_no_session_desc": "実行中の AI エージェントがいないときはパネルを完全に隠します",
         "menu_bar_mode": "メニューバーパネル",
-        "menu_bar_mode_desc": "ノッチを使わず、メニューバーのアイコンからパネルを下に開きます（再起動後に反映）",
+        "menu_bar_mode_desc": "ノッチを使わず、メニューバーのアイコンにカーソルを合わせるとパネルが下に開きます（再起動後に反映）",
         "menu_bar_panel": "パネルを開く",
 
         "auto_expand_on_permission": "承認要求で自動展開",
@@ -3177,7 +3177,7 @@ final class L10n: ObservableObject {
         "hide_when_no_session": "활성 세션이 없을 때 자동 숨김",
         "hide_when_no_session_desc": "실행 중인 AI 에이전트가 없으면 패널을 완전히 숨깁니다",
         "menu_bar_mode": "메뉴 막대 패널",
-        "menu_bar_mode_desc": "노치를 쓰지 않고 메뉴 막대 아이콘에서 패널을 아래로 엽니다 (재시작 후 적용)",
+        "menu_bar_mode_desc": "노치를 쓰지 않고 메뉴 막대 아이콘에 마우스를 올리면 패널이 아래로 펼쳐집니다 (재시작 후 적용)",
         "menu_bar_panel": "패널 열기",
 
         "auto_expand_on_permission": "승인 요청 시 자동 확장",
@@ -3797,7 +3797,7 @@ final class L10n: ObservableObject {
         "hide_when_no_session": "Aktif Oturum Yokken Otomatik Gizle",
         "hide_when_no_session_desc": "AI ajanları çalışırken paneli tamamen gizle",
         "menu_bar_mode": "Menü Çubuğu Paneli",
-        "menu_bar_mode_desc": "Çentiği boş bırakır: panel menü çubuğu simgesinden aşağı açılır (yeniden başlatınca geçerli)",
+        "menu_bar_mode_desc": "Çentik boş kalır: imleç menü çubuğu simgesine gelince panel aşağı açılır (yeniden başlatınca geçerli)",
         "menu_bar_panel": "Paneli Aç",
 
         "auto_expand_on_permission": "Onay İsteğinde Otomatik Genişlet",

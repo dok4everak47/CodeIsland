@@ -16,9 +16,15 @@ final class StatusItemController: NSObject {
 
     /// Owned by `AppDelegate`; read for the badge, watched for changes.
     weak var appState: AppState?
-    /// Left click in menu-bar mode: open/close the drop-down. Without it (the
-    /// classic notch mode's optional icon) the click falls back to the menu.
-    var onTogglePanel: (() -> Void)?
+    /// Left click in menu-bar mode: bring the drop-down up. Hover normally got
+    /// there first, so the click only ever opens and never dismisses what the
+    /// pointer is still sitting on. Without it (the classic notch mode's
+    /// optional icon) the click falls back to the menu.
+    var onShowPanel: (() -> Void)?
+    /// The pointer reaching (and leaving) the icon. Menu-bar mode opens on
+    /// hover, so this is the gesture, not a nicety.
+    var onHoverChanged: ((Bool) -> Void)?
+    private var hoverTrackingArea: NSTrackingArea?
 
     private var statusItem: NSStatusItem?
     private var badgeDot: NSView?
@@ -78,6 +84,7 @@ final class StatusItemController: NSObject {
             let dot = Self.makeBadgeDot()
             button.addSubview(dot)
             badgeDot = dot
+            installHoverTracking(on: button)
         }
         statusItem = item
         updateBadge()
@@ -88,11 +95,11 @@ final class StatusItemController: NSObject {
         let isRightClick = event?.type == .rightMouseUp
             || event?.modifierFlags.contains(.control) == true
         // No panel to open outside menu-bar mode: every click is the menu.
-        guard !isRightClick, let onTogglePanel else {
+        guard !isRightClick, let onShowPanel else {
             showMenu()
             return
         }
-        onTogglePanel()
+        onShowPanel()
     }
 
     private func showMenu() {
@@ -100,8 +107,34 @@ final class StatusItemController: NSObject {
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.minY - 4), in: button)
     }
 
+    /// A tracking area, not a mouse-moved monitor: the icon is an AppKit
+    /// status item, and AppKit delivers enter/exit to its tracking areas even
+    /// while another app is active — with no permission to ask for.
+    private func installHoverTracking(on button: NSStatusBarButton) {
+        if let hoverTrackingArea { button.removeTrackingArea(hoverTrackingArea) }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        button.addTrackingArea(area)
+        hoverTrackingArea = area
+    }
+
+    // The selector is spelled out: Swift would otherwise name it
+    // `mouseEnteredWithEvent:`, and AppKit would find nothing to call.
+    @objc(mouseEntered:) func mouseEntered(with event: NSEvent) {
+        onHoverChanged?(true)
+    }
+
+    @objc(mouseExited:) func mouseExited(with event: NSEvent) {
+        onHoverChanged?(false)
+    }
+
     private func hideStatusItem() {
         if let statusItem {
+            hoverTrackingArea = nil
             NSStatusBar.system.removeStatusItem(statusItem)
             self.statusItem = nil
             badgeDot = nil
@@ -194,7 +227,7 @@ final class StatusItemController: NSObject {
         if SettingsManager.shared.menuBarMode {
             let panel = NSMenuItem(
                 title: L10n.shared["menu_bar_panel"],
-                action: #selector(togglePanel),
+                action: #selector(openPanel),
                 keyEquivalent: ""
             )
             panel.target = self
@@ -219,8 +252,8 @@ final class StatusItemController: NSObject {
         return menu
     }
 
-    @objc private func togglePanel() {
-        onTogglePanel?()
+    @objc private func openPanel() {
+        onShowPanel?()
     }
 
     @objc private func openSettings() {

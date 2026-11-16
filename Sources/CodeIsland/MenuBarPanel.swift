@@ -89,7 +89,7 @@ private final class MenuBarPanelWindow: NSPanel {
 
 /// The menu-bar presentation of the island (Settings › Behavior › Menu bar
 /// panel): nothing is drawn at the notch, the status item is the entry point,
-/// and clicking it drops the full panel down under the icon.
+/// and pointing at it drops the full panel down under the icon.
 @MainActor
 final class MenuBarPanelController: NSObject {
     private let appState: AppState
@@ -104,6 +104,13 @@ final class MenuBarPanelController: NSObject {
     private var isSurfaceObservationArmed = false
     private var isWatching = false
     private var isAwaitingFirstSize = false
+    private var hoverCloseWork: DispatchWorkItem?
+
+    /// How long the pointer may be outside both the icon and the card before
+    /// the drop-down puts itself away. The two are six points apart, so a
+    /// pointer on its way from one to the other is briefly over neither:
+    /// closing on the first such frame would make the card unreachable.
+    var hoverGrace: TimeInterval = 0.3
 
     /// The status item button in screen coordinates — the card hangs under it.
     var anchorProvider: () -> NSRect? = { nil }
@@ -131,11 +138,52 @@ final class MenuBarPanelController: NSObject {
         armSurfaceObservation()
     }
 
+    // MARK: - Hover
+
+    /// Hover is the whole gesture in menu-bar mode: the pointer reaching the
+    /// icon opens the card, and leaving both puts it away again.
+    func iconHoverChanged(_ inside: Bool) {
+        guard isWatching else { return }
+        guard inside else {
+            if isOpen { scheduleHoverClose() }
+            return
+        }
+        cancelHoverClose()
+        if !isOpen { open() }
+    }
+
+    /// The card counts as inside: answering it must not put it away.
+    func cardHoverChanged(_ inside: Bool) {
+        guard isWatching else { return }
+        if inside {
+            cancelHoverClose()
+        } else if isOpen {
+            scheduleHoverClose()
+        }
+    }
+
+    private func scheduleHoverClose() {
+        guard hoverCloseWork == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.hoverCloseWork = nil
+            self.close()
+        }
+        hoverCloseWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + hoverGrace, execute: work)
+    }
+
+    private func cancelHoverClose() {
+        hoverCloseWork?.cancel()
+        hoverCloseWork = nil
+    }
+
     func toggle() {
         isOpen ? close() : open()
     }
 
     func open() {
+        cancelHoverClose()
         guard !isOpen else { return }
         guard let screen = (anchorProvider().map(screenContaining)) ?? NSScreen.main ?? NSScreen.screens.first else {
             return
@@ -167,6 +215,7 @@ final class MenuBarPanelController: NSObject {
     }
 
     func close() {
+        cancelHoverClose()
         guard isOpen else { return }
         guard canDismiss else { return }
         isOpen = false
@@ -229,6 +278,9 @@ final class MenuBarPanelController: NSObject {
             cardSpaceBudget: budget,
             onCardSizeChange: { [weak self] size in
                 self?.cardSizeChanged(size)
+            },
+            onCardHover: { [weak self] inside in
+                self?.cardHoverChanged(inside)
             }
         )
         contentScreen = screen

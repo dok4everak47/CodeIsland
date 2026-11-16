@@ -87,10 +87,52 @@ final class StatusItemControllerTests: XCTestCase {
         let controller = makeController(menuBarMode: true)
         XCTAssertNotNil(controller.debugStatusItem)
         var toggles = 0
-        controller.onTogglePanel = { toggles += 1 }
+        controller.onShowPanel = { toggles += 1 }
 
         controller.perform(NSSelectorFromString("statusButtonClicked"))
         XCTAssertEqual(toggles, 1, "a left click belongs to the drop-down")
+    }
+
+    /// Hover is the gesture: the icon has to hand enter/exit events to AppKit's
+    /// tracking machinery, or nothing opens until the user clicks.
+    func testTheIconTracksThePointerForHover() throws {
+        let controller = makeController(menuBarMode: true)
+        let item = try XCTUnwrap(controller.debugStatusItem)
+        let button = try XCTUnwrap(item.button)
+
+        let areas = button.trackingAreas
+        XCTAssertTrue(
+            areas.contains { $0.options.contains(.mouseEnteredAndExited) },
+            "no tracking area: the drop-down would never open on hover"
+        )
+        XCTAssertTrue(controller.responds(to: NSSelectorFromString("mouseEntered:")))
+        XCTAssertTrue(controller.responds(to: NSSelectorFromString("mouseExited:")))
+
+        var seen: [Bool] = []
+        controller.onHoverChanged = { seen.append($0) }
+        controller.mouseEntered(with: try XCTUnwrap(NSEvent.mouseEvent(
+            with: .mouseMoved,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 0,
+            pressure: 0
+        )))
+        controller.mouseExited(with: try XCTUnwrap(NSEvent.mouseEvent(
+            with: .mouseMoved,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 0,
+            pressure: 0
+        )))
+        XCTAssertEqual(seen, [true, false])
     }
 
     func testLeavingMenuBarModeTakesTheIconAway() throws {

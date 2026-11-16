@@ -118,8 +118,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             controller.anchorProvider = { StatusItemController.shared.buttonScreenRect }
             controller.activate()
             menuBarController = controller
-            StatusItemController.shared.onTogglePanel = { [weak controller] in
-                controller?.toggle()
+            // Hover does the work; a click on the icon only ever brings the
+            // card up, so a habitual click cannot close what is already there.
+            StatusItemController.shared.onShowPanel = { [weak controller] in
+                controller?.open()
+            }
+            StatusItemController.shared.onHoverChanged = { [weak controller] inside in
+                controller?.iconHoverChanged(inside)
             }
         } else {
             panelController = PanelWindowController(appState: appState)
