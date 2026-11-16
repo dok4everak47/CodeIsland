@@ -435,6 +435,7 @@ private struct BehaviorPage: View {
     var appState: AppState?
 
     @AppStorage(SettingsKey.hideInFullscreen) private var hideInFullscreen = SettingsDefaults.hideInFullscreen
+    @AppStorage(SettingsKey.menuBarMode) private var menuBarMode = SettingsDefaults.menuBarMode
     @AppStorage(SettingsKey.hideWhenNoSession) private var hideWhenNoSession = SettingsDefaults.hideWhenNoSession
     @AppStorage(SettingsKey.smartSuppress) private var smartSuppress = SettingsDefaults.smartSuppress
     @AppStorage(SettingsKey.collapseOnMouseLeave) private var collapseOnMouseLeave = SettingsDefaults.collapseOnMouseLeave
@@ -486,6 +487,12 @@ private struct BehaviorPage: View {
     var body: some View {
         Form {
             Section(l10n["display_section"]) {
+                BehaviorToggleRow(
+                    title: l10n["menu_bar_mode"],
+                    desc: l10n["menu_bar_mode_desc"],
+                    isOn: $menuBarMode,
+                    animation: .menuBar
+                )
                 BehaviorToggleRow(
                     title: l10n["hide_in_fullscreen"],
                     desc: l10n["hide_in_fullscreen_desc"],
@@ -2625,6 +2632,7 @@ private struct AboutPage: View {
 
 private enum BehaviorAnim {
     case hideFullscreen, hideNoSession, smartSuppress, collapseMouseLeave, clickJumpCollapse, hapticHover
+    case menuBar
 }
 
 struct ClickJumpCollapsePreviewTimeline {
@@ -2760,6 +2768,7 @@ private struct NotchMiniAnim: View {
         case .smartSuppress:    drawSuppress(c, sz: sz, t: t)
         case .collapseMouseLeave: drawMouseLeave(c, sz: sz, t: t)
         case .clickJumpCollapse: drawClickJumpCollapse(c, sz: sz, t: t)
+        case .menuBar:          drawMenuBar(c, sz: sz, t: t)
         case .hapticHover:      drawHaptic(c, sz: sz, t: t)
         }
     }
@@ -2849,6 +2858,39 @@ private struct NotchMiniAnim: View {
                 c.fill(Path(ellipseIn: CGRect(x: cx + dx - 1.5, y: 3, width: 3, height: 3)),
                        with: .color(.green.opacity(0.85 * dotOp * pillOp)))
             }
+        }
+    }
+
+    // 2b) Menu bar panel: no notch at all — the island drops out of a status item.
+    private func drawMenuBar(_ c: GraphicsContext, sz: CGSize, t: Double) {
+        let cycle = t.truncatingRemainder(dividingBy: 3.2) / 3.2
+        let open: Double = cycle < 0.3 ? cycle / 0.3 :
+            cycle < 0.8 ? 1.0 : max(0, 1 - (cycle - 0.8) / 0.2)
+
+        // The status item in the menu bar: the island's two eyes, always there.
+        for dx in [-4.0, 1.0] as [CGFloat] {
+            c.fill(Path(roundedRect: CGRect(x: sz.width / 2 + dx, y: 2, width: 3, height: 3),
+                        cornerRadius: 1),
+                   with: .color(.primary.opacity(0.55)))
+        }
+        // The drop-down under it: closed, a hairline; open, the island's card.
+        let w: CGFloat = 38
+        let h = 3 + 17 * CGFloat(open)
+        let y: CGFloat = 8 + 4 * CGFloat(open)
+        c.fill(Path(roundedRect: CGRect(x: (sz.width - w) / 2, y: y, width: w, height: h),
+                    cornerRadius: min(w, h) * 0.3, style: .continuous),
+               with: .color(Color(white: 0.06)))
+        guard open > 0.55 else { return }
+        let lit = (open - 0.55) / 0.45
+        // A green session dot and two content lines, the shape of a real panel.
+        c.fill(Path(ellipseIn: CGRect(x: (sz.width - w) / 2 + 4, y: y + 4, width: 3, height: 3)),
+               with: .color(.green.opacity(0.85 * lit)))
+        for i in 0..<2 {
+            let lineW = i == 0 ? w - 16 : w - 24
+            c.fill(Path(roundedRect: CGRect(x: (sz.width - w) / 2 + 9, y: y + 4 + CGFloat(i) * 4,
+                                            width: lineW, height: 2.5),
+                        cornerRadius: 1.25),
+                   with: .color(.secondary.opacity(0.45 * lit)))
         }
     }
 

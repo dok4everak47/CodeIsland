@@ -31,6 +31,9 @@ enum SettingsKey {
     // General - Behavior
     static let hideInFullscreen = "hideInFullscreen"
     static let hideWhenNoSession = "hideWhenNoSession"
+    /// Menu-bar presentation: the status item is the entry point and the
+    /// island drops down from it instead of hanging off the notch.
+    static let menuBarMode = "menuBarMode"
     static let smartSuppress = "smartSuppress"
     static let collapseOnMouseLeave = "collapseOnMouseLeave"
     static let notchAnimationSpeed = "notchAnimationSpeed"
@@ -176,6 +179,7 @@ struct SettingsDefaults {
     static let panelHorizontalOffset = 0.0
     static let hideInFullscreen = true
     static let hideWhenNoSession = false
+    static let menuBarMode = true
     static let smartSuppress = true
     static let collapseOnMouseLeave = true
     static let notchAnimationSpeed = NotchAnimationSpeed.normal
@@ -283,6 +287,7 @@ class SettingsManager {
             SettingsKey.panelHorizontalOffset: SettingsDefaults.panelHorizontalOffset,
             SettingsKey.hideInFullscreen: SettingsDefaults.hideInFullscreen,
             SettingsKey.hideWhenNoSession: SettingsDefaults.hideWhenNoSession,
+            SettingsKey.menuBarMode: SettingsDefaults.menuBarMode,
             SettingsKey.smartSuppress: SettingsDefaults.smartSuppress,
             SettingsKey.collapseOnMouseLeave: SettingsDefaults.collapseOnMouseLeave,
             SettingsKey.notchAnimationSpeed: SettingsDefaults.notchAnimationSpeed,
@@ -397,6 +402,11 @@ class SettingsManager {
     var hideWhenNoSession: Bool {
         get { defaults.bool(forKey: SettingsKey.hideWhenNoSession) }
         set { defaults.set(newValue, forKey: SettingsKey.hideWhenNoSession) }
+    }
+
+    var menuBarMode: Bool {
+        get { defaults.bool(forKey: SettingsKey.menuBarMode) }
+        set { defaults.set(newValue, forKey: SettingsKey.menuBarMode) }
     }
 
     var smartSuppress: Bool {

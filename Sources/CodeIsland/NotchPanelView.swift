@@ -135,6 +135,13 @@ enum ToolNameDisplay {
     }
 }
 
+/// Where the island is drawn: against the hardware notch, or in the drop-down
+/// that hangs under the menu-bar status item.
+enum IslandPlacement: Equatable {
+    case notch
+    case menuBar
+}
+
 struct NotchPanelView: View {
     var appState: AppState
     let hasNotch: Bool
@@ -144,6 +151,16 @@ struct NotchPanelView: View {
     /// Room between the notch and the menu-bar icons, kept up to date by
     /// `PanelWindowController`.
     @ObservedObject var menuBarSpace = MenuBarSpace()
+    /// Which presentation this copy of the island belongs to.
+    var placement: IslandPlacement = .notch
+    /// Height budget for the completion card's reply. The drop-down sizes its
+    /// window to the content, so feeding it the measured window back would make
+    /// the reply chase its own frame; `MenuBarPanelController` passes a fixed
+    /// budget instead.
+    var cardSpaceBudget: CGFloat?
+    /// Reports the black card's own size. The drop-down sizes its window to
+    /// exactly this, so no transparent window area is left to swallow clicks.
+    var onCardSizeChange: ((CGSize) -> Void)?
 
     @AppStorage(SettingsKey.contentFontSize) private var contentFontSize = SettingsDefaults.contentFontSize
     @AppStorage(SettingsKey.showAgentDetails) private var showAgentDetails = SettingsDefaults.showAgentDetails
@@ -185,11 +202,14 @@ struct NotchPanelView: View {
     /// First launch / no-session state should still render a visible marker so the app
     /// doesn't disappear completely behind the physical notch.
     private var showIdleIndicator: Bool {
-        !isActive && !hideWhenNoSession
+        placement == .menuBar ? false : (!isActive && !hideWhenNoSession)
     }
-    /// Whether the bar content should be visible (respects hideWhenNoSession)
+    /// Whether the bar content should be visible (respects hideWhenNoSession).
+    /// The drop-down only ever exists while it is open, so it always shows the
+    /// bar — the status item is the entry point, not the island.
     private var showBar: Bool {
-        isActive && !(hideWhenNoSession && appState.activeSessionCount == 0)
+        if placement == .menuBar { return true }
+        return isActive && !(hideWhenNoSession && appState.activeSessionCount == 0)
     }
     private var shouldShowExpanded: Bool {
         showBar && appState.surface.isExpanded
@@ -637,14 +657,23 @@ struct NotchPanelView: View {
             }
             .recordsCompletionCardChrome(in: cardSpace)
             .frame(width: panelWidth)
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { onCardSizeChange?($0) }
             .clipped()
             .background(
-                NotchPanelShape(
-                    topExtension: shouldShowExpanded ? 14 : 3,
-                    bottomRadius: shouldShowExpanded ? 24 : 12,
-                    minHeight: notchHeight
-                )
-                .fill(.black)
+                Group {
+                    if placement == .menuBar {
+                        // No menu bar to reach into: a plain floating card.
+                        RoundedRectangle(cornerRadius: shouldShowExpanded ? 18 : 12, style: .continuous)
+                            .fill(.black)
+                    } else {
+                        NotchPanelShape(
+                            topExtension: shouldShowExpanded ? 14 : 3,
+                            bottomRadius: shouldShowExpanded ? 24 : 12,
+                            minHeight: notchHeight
+                        )
+                        .fill(.black)
+                    }
+                }
             )
             .offset(y: curtainOffset)
             .opacity(curtainOpacity)
@@ -674,6 +703,13 @@ struct NotchPanelView: View {
                 // reminders count as "reading this card" — whatever the
                 // hover then does to the surface below.
                 appState.followUps.pointerOverIsland = hovering
+                // The drop-down is click-driven: hover must not expand it (it
+                // is already open) and must not collapse it when the pointer
+                // travels to the terminal underneath.
+                if placement == .menuBar {
+                    isHovered = hovering
+                    return
+                }
                 // Idle indicator hover — delay un-hover to prevent oscillation when
                 // the animated width change crosses the mouse position (#52).
                 if showIdleIndicator {
@@ -812,8 +848,11 @@ struct NotchPanelView: View {
         // bottom instead of pushing the notch bar off the top.
         .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .top)
         // The hosting view fills the panel window, whose height is already
-        // clamped to the screen.
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardSpace.recordWindowHeight($0) }
+        // clamped to the screen. The drop-down sizes its window to the card, so
+        // it hands the reply a fixed budget instead of the measured frame.
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+            cardSpace.recordWindowHeight(placement == .menuBar ? (cardSpaceBudget ?? height) : height)
+        }
         .environment(cardSpace)
         // The expanded header's grouping tabs: the physical notch, not the
         // widened island, is what they must stay clear of.

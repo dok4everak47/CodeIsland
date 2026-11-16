@@ -8,6 +8,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     nonisolated private static let log = Logger(subsystem: "com.codeisland", category: "AppDelegate")
 
     var panelController: PanelWindowController?
+    /// Menu-bar presentation of the island, installed instead of
+    /// `panelController` when Settings › Behaviour › Menu bar panel is on.
+    var menuBarController: MenuBarPanelController?
     private var hookServer: HookServer?
     private var hookRecoveryTimer: Timer?
     private var lastHookCheck: Date = .distantPast
@@ -45,6 +48,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Pre-set app icon so Dock/menu bar use the packaged bundle icon.
         NSApp.applicationIconImage = SettingsWindowController.bundleAppIcon()
         SettingsWindowController.shared.appState = appState
+        StatusItemController.shared.appState = appState
         StatusItemController.shared.startObserving()
         // Start HookServer BEFORE installing hooks into CLI configs.
         // If we write settings.json first, Claude Code picks up the new hooks
@@ -107,8 +111,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Follow-up reminders also reach the phone / chat push channels.
         appState.connectPushToFollowUps()
 
-        panelController = PanelWindowController(appState: appState)
-        panelController?.showPanel()
+        if SettingsManager.shared.menuBarMode {
+            // Menu-bar presentation: nothing at the notch, the status item is
+            // the entry point and drops the island down under the icon.
+            let controller = MenuBarPanelController(appState: appState)
+            controller.anchorProvider = { StatusItemController.shared.buttonScreenRect }
+            controller.activate()
+            menuBarController = controller
+            StatusItemController.shared.onTogglePanel = { [weak controller] in
+                controller?.toggle()
+            }
+        } else {
+            panelController = PanelWindowController(appState: appState)
+            panelController?.showPanel()
+        }
 
         if !isolated {
             appState.startSessionDiscovery()
@@ -316,6 +332,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // work on, and up over a fullscreen app Hide in Fullscreen hid it
         // behind (#384).
         case .togglePanel:
+            if let menuBarController {
+                switch appState.togglePanelFromShortcut(islandAway: false) {
+                case .collapsed: menuBarController.close()
+                case .opened, .keptOpen: menuBarController.open()
+                }
+                return
+            }
             let away = panelController?.isIslandAwayFromUser ?? false
             if appState.togglePanelFromShortcut(islandAway: away) != .collapsed {
                 panelController?.bringIslandIntoSight()
@@ -323,9 +346,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Card shortcuts act only on the card on screen (#308); with the
         // request hidden they open its card instead of acting unseen.
         case .approve, .approveAlways, .deny, .skipQuestion:
-            let onScreen = panelController?.isIslandOnScreen ?? true
+            let onScreen = menuBarController?.isOpen ?? (panelController?.isIslandOnScreen ?? true)
             if case .opened = appState.performCardShortcut(action, islandOnScreen: onScreen) {
-                panelController?.bringIslandIntoSight()
+                if let menuBarController {
+                    menuBarController.open()
+                } else {
+                    panelController?.bringIslandIntoSight()
+                }
             }
         case .jumpToTerminal:
             if let id = appState.activeSessionId, let session = appState.sessions[id] {
